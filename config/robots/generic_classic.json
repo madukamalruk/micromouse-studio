@@ -1,0 +1,30 @@
+{
+  "name": "generic_classic",
+  "description": "Generic classic (16x16) micromouse for Phase 1. ~100 g, 32 mm wheels, N20-class 30:1 motors on 2S LiPo. Neomouse V2 values arrive in Phase 2 as a separate file.",
+  "mass_kg": 0.100,
+  "yaw_inertia_kg_m2": 1.4e-4,
+  "track_width_m": 0.072,
+  "wheel": {
+    "radius_m": 0.016,
+    "inertia_kg_m2": 2.0e-7
+  },
+  "body": {
+    "length_m": 0.095,
+    "width_m": 0.075,
+    "offset_x_m": 0.010
+  },
+  "motor": {
+    "resistance_ohm": 10.0,
+    "kt_nm_per_a": 0.00229,
+    "ke_v_s_per_rad": 0.00229,
+    "gear_ratio": 30.0,
+    "rotor_inertia_kg_m2": 1.0e-8,
+    "viscous_nm_s_per_rad": 1.0e-8,
+    "coulomb_nm": 2.0e-5,
+    "efficiency": 0.85,
+    "max_voltage_v": 6.0
+  },
+  "battery_voltage_v": 7.4,
+  "encoder_counts_per_motor_rev": 28,
+  "collision_restitution": 0.0
+}

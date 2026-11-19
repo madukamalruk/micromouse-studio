@@ -81,7 +81,7 @@ Expected: maze tests pass (incl. all classic round-trips); `build/uk1987.png` sh
 ## Slice 3 — Firmware HAL + firmware host + differential-drive physics + collision (L)
 **Goal:** a C firmware DLL drives a physically simulated mouse into a wall and the sim reports the crash.
 
-- [ ] 3.1 `hal/include/mmhal/hal.h` v0.1 (C11). Draft API:
+- [x] 3.1 `hal/include/mmhal/hal.h` v0.1 (C11). Draft API:
   ```c
   #define MMHAL_VERSION 1
   /* lifecycle — implemented by firmware */
@@ -111,14 +111,14 @@ Expected: maze tests pass (incl. all classic round-trips); `build/uk1987.png` sh
   void hal_annotate_wall(uint8_t x, uint8_t y, char dir, bool present);
   void hal_annotate_clear(void);
   ```
-- [ ] 3.2 `sim/hal_sim`: vtable struct + `fw_bind()` export; static lib linked into each firmware DLL.
-- [ ] 3.3 `sim/platform`: DLL load/unload (copy-on-load), thread + condition-variable primitives wrapper.
-- [ ] 3.4 `sim/host/FirmwareHost`: lockstep scheduler, ISR dispatch, reset/reload, watchdog (no HAL call for 2 s wall time → stop + error).
-- [ ] 3.5 `sim/core`: `Clock`, `DcMotor` (R, L ignored v1, Kt, Ke, gear ratio, rotor+wheel inertia, viscous+Coulomb friction, `max_voltage` warning), `DiffDrive` (mass, yaw inertia, wheel radius, track; semi-implicit Euler at 0.25 ms; no-slip default, optional lateral-slip clamp), `Body` polygon, `Collision` (body vs wall/post AABBs, swept test against tunnelling → stop + `CrashEvent`).
-- [ ] 3.6 `config/robots/generic_classic.json` + `RobotConfig` loader with keyed errors.
-- [ ] 3.7 Test firmwares: `firmware/test_blink` (LED every 500 ms), `firmware/test_open_loop` (fixed duty → drive forward until crash).
-- [ ] 3.8 GUI: mouse body + wheels drawn at continuous pose; Run/Reset buttons (minimal; full controls in Slice 6).
-- [ ] 3.9 `arm-check` target: `arm-none-eabi-gcc -std=c11 -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -fsyntax-only -Wall -Werror -Ihal/include` on every firmware.
+- [x] 3.2 `sim/hal_sim`: vtable struct + `fw_bind()` export; compiled into each firmware DLL (`mmsim_fw_abi/bind/main` exports, ABI check).
+- [x] 3.3 `sim/platform`: DLL load/unload (copy-on-load) + **fibers** instead of thread/condvar (D6).
+- [x] 3.4 `sim/host/FirmwareHost`: lockstep scheduler, ISR dispatch, reset/reload, ISR-blocking fault, halted state; watchdog = `run_guarded` (2 s wall → Hung). `Session` = World + host.
+- [x] 3.5 `sim/core` (`DriveModel` implicit in decoupled modes, OBB body, integer-µs clock in `World`; lateral-slip clamp moved to Slice 4): `Clock`, `DcMotor` (R, L ignored v1, Kt, Ke, gear ratio, rotor+wheel inertia, viscous+Coulomb friction, `max_voltage` warning), `DiffDrive` (mass, yaw inertia, wheel radius, track; semi-implicit Euler at 0.25 ms; no-slip default, optional lateral-slip clamp), `Body` polygon, `Collision` (body vs wall/post AABBs, swept test against tunnelling → stop + `CrashEvent`).
+- [x] 3.6 `config/robots/generic_classic.json` + `RobotConfig` loader with keyed errors.
+- [x] 3.7 Test firmwares (+ `test_spin_turn`, `test_globals`, `test_faults`): `firmware/test_blink` (LED every 500 ms), `firmware/test_open_loop` (fixed duty → drive forward until crash).
+- [x] 3.8 GUI: mouse body + wheels drawn at continuous pose; Run/Reset buttons (minimal; full controls in Slice 6). Also: path trace, crash marks, Run + Log panels, firmware picker, `--firmware/--run-for/--config`; ~1× real time (precise pacing in Slice 5).
+- [x] 3.9 `arm-check` target (object compile `-O2 -Werror -Wdouble-promotion`, D6; ctest `boundary.arm_check` when the compiler is found): `arm-none-eabi-gcc -std=c11 -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -fsyntax-only -Wall -Werror -Ihal/include` on every firmware.
 
 **Verify**
 ```powershell
@@ -139,6 +139,7 @@ Expected tests: straight-line heading drift < 1e-9 rad/10 m; circle radius withi
 - [ ] 4.4 `Rng` per source seeded from world seed (`splitmix64`/`xoshiro256**`), documented derivation.
 - [ ] 4.5 GUI overlay: sensor rays + hit points (toggle).
 - [ ] 4.6 Test firmware `firmware/test_sensor_dump` (logs all channels at 100 Hz).
+- [ ] 4.7 Optional wheel slip: lateral-slip clamp + longitudinal traction limit (moved from 3.5; default off keeps Slice 3 results exact).
 
 **Verify**
 ```powershell
@@ -234,4 +235,5 @@ Expected: report for all classic mazes; ≥ 90 % solved crash-free (failures lis
 
 ## Next up
 Slice 1 done (2026-11-20). Slice 2 done (2026-11-20): maze model + `.txt`/`.num`/`.maz` parsers/writers, validator, flood distances, geometry, SDL2+ImGui renderer with camera; 13/13 ctest green incl. GPU pixel checks on tiny4x4, UK 1987 and a 32x32. Nothing pushed.
-Next: **Slice 3** — `mmhal/hal.h` v1, hal_sim + DLL firmware host (lockstep), DC motor + diff-drive physics, collision, `arm-check` target.
+Slice 3 done (2026-11-20): HAL v1 + hal_sim, fiber-based lockstep firmware host with DLL reload/faults/watchdog, DC motor + diff-drive model checked against closed-form results, OBB-vs-AABB continuous collision with crash events, robot config JSON, GUI robot view + Run/Log panels, arm-check. Nothing pushed.
+Next: **Slice 4** — sensor models (IR/ToF raycast, encoder/gyro noise), wheel slip.

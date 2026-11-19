@@ -20,5 +20,7 @@ list(PREPEND CMAKE_PREFIX_PATH "${MSYS2_ROOT}/ucrt64")
 # Link the GCC/C++/pthread runtimes statically into every exe/DLL. Otherwise Windows may load
 # libstdc++-6.dll from an older toolchain on PATH (e.g. C:\MinGW, GCC 6.3) and crash on ABI mismatch.
 set(CMAKE_EXE_LINKER_FLAGS_INIT    "-static-libgcc -static-libstdc++ -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic")
-set(CMAKE_SHARED_LINKER_FLAGS_INIT "-static-libgcc -static-libstdc++ -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic")
+# Shared libraries = firmware DLLs (pure C, loaded/unloaded on every reset): static libgcc only.
+# Whole-archive winpthread would add TLS callbacks to a DLL that is FreeLibrary'd repeatedly.
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "-static-libgcc")
 set(Python3_ROOT_DIR "${MSYS2_ROOT}/ucrt64")

@@ -45,6 +45,7 @@ docs/                   prd.md, plan.md, decisions.md, reference/
 5. Firmware must yield: its main loop calls a blocking HAL function (`hal_delay_ms`, `hal_wait_tick`, …) regularly; busy loops without HAL calls are a bug (the host watchdog will stop them).
 6. Changing `hal.h` = contract change: bump `MMHAL_VERSION`, note it in `docs/decisions.md`, update both the sim backend and (Phase 2) the STM32 backend.
 7. `sim/core` must not depend on SDL/ImGui/OS headers; it is unit-tested headless.
+8. Win32 APIs (`windows.h`: fibers, `LoadLibrary`) only in `sim/platform`. Firmware runs on a fiber driven by `sim/host/FirmwareHost`; never call a blocking HAL function from the SysTick ISR (host reports a fault).
 
 ## Simulation rules
 - SI units inside `sim/core`. Fixed physics dt (0.25 ms) and 1 kHz control tick — never tie physics to frame rate.

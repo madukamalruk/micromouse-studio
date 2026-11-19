@@ -24,7 +24,13 @@ target_include_directories(mmhal INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/hal/incl
 
 # --- Simulator ---------------------------------------------------------------
 add_subdirectory(sim/core)
+add_subdirectory(sim/platform)
+add_subdirectory(sim/host)
 add_subdirectory(sim/app)
+
+# --- Firmware (built as DLLs for the simulator; arm-check builds them for Cortex-M4) ---
+add_subdirectory(firmware)
+include(arm_check)
 
 # --- Tests -------------------------------------------------------------------
 add_subdirectory(tests)

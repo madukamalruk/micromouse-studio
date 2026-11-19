@@ -1,0 +1,132 @@
+#pragma once
+
+#include <chrono>
+#include <cstdint>
+#include <deque>
+#include <filesystem>
+#include <functional>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "sim/core/maze.hpp"
+#include "sim/core/maze_geometry.hpp"
+#include "sim/core/robot_config.hpp"
+#include "sim/core/world.hpp"
+#include "sim/host/firmware_host.hpp"
+
+namespace mmsim::host {
+
+struct LogLine {
+    std::int64_t time_us;
+    std::string text;
+};
+
+struct LedEvent {
+    std::int64_t time_us;
+    int led;
+    bool on;
+};
+
+struct TelemetrySample {
+    std::int64_t time_us;
+    float value;
+};
+
+/// Per-cell annotations written by the firmware (mms-style colours/text, wall marks).
+struct Annotations {
+    std::map<std::pair<int, int>, char> color;
+    std::map<std::pair<int, int>, std::string> text;
+    struct Wall {
+        int x, y;
+        char dir;
+        bool present;
+    };
+    std::vector<Wall> walls;
+};
+
+/// One simulation run: World (physics) + FirmwareHost (DLL on a fiber) + everything the
+/// firmware reports. Implements the non-timing HAL services. Single-threaded.
+class Session final : public HalBackend {
+  public:
+    static constexpr std::size_t kTelemetryHistory = 20000;
+    static constexpr std::size_t kMaxLogLines = 10000;
+
+    Session(core::Maze maze, core::RobotConfig cfg, core::MazeDims dims = {});
+    ~Session() override;
+    Session(const Session&) = delete;
+    Session& operator=(const Session&) = delete;
+
+    bool load(const std::filesystem::path& dll);
+    /// World back to the start pose + firmware unloaded and reloaded (fresh globals).
+    void reset();
+    void unload();
+
+    /// Inputs that the firmware reads at boot (e.g. mode buttons).
+    void set_button(int btn, bool pressed);
+
+    void step_tick();
+    void run_ms(std::uint32_t ms);
+
+    FwState state() const { return host_.state(); }
+    const std::string& error() const { return host_.error(); }
+    const std::filesystem::path& firmware_path() const { return host_.path(); }
+    std::int64_t time_us() const { return world_.time_us(); }
+
+    core::World& world() { return world_; }
+    const core::World& world() const { return world_; }
+
+    const std::deque<LogLine>& logs() const { return logs_; }
+    const std::vector<LedEvent>& led_events() const { return leds_; }
+    bool led(int i) const { return i >= 0 && i < 8 && led_state_[i]; }
+    std::optional<float> telemetry_value(const std::string& channel) const;
+    const std::map<std::string, std::deque<TelemetrySample>>& telemetry() const {
+        return telemetry_;
+    }
+    const Annotations& annotations() const { return ann_; }
+
+  private:
+    // HalBackend
+    void motor_set_duty(int side, float duty) override;
+    float battery_voltage() override;
+    std::int32_t encoder_count(int side) override;
+    float gyro_z_dps() override;
+    std::uint8_t sensor_count() override;
+    std::uint16_t sensor_read(std::uint8_t ch) override;
+    void emitter_set(std::uint8_t ch, bool on) override;
+    void led_set(std::uint8_t led, bool on) override;
+    bool button_pressed(std::uint8_t btn) override;
+    void log(const char* line) override;
+    void telemetry(const char* channel, float value) override;
+    void annotate_cell_color(std::uint8_t x, std::uint8_t y, char color) override;
+    void annotate_cell_text(std::uint8_t x, std::uint8_t y, const char* text) override;
+    void annotate_wall(std::uint8_t x, std::uint8_t y, char dir, bool present) override;
+    void annotate_clear() override;
+
+    void clear_outputs();
+
+    core::World world_;
+    FirmwareHost host_;
+    bool buttons_[8] = {};
+    bool led_state_[8] = {};
+    std::deque<LogLine> logs_;
+    std::vector<LedEvent> leds_;
+    std::map<std::string, std::deque<TelemetrySample>> telemetry_;
+    Annotations ann_;
+};
+
+enum class GuardResult { Completed, Hung };
+
+/// Runs session->run_ms(ms) on a worker thread. If it does not finish within wall_timeout
+/// (firmware spinning without HAL calls), returns Hung and abandons the worker: the session
+/// must not be used again (the shared_ptr keeps it alive for the detached thread).
+GuardResult run_guarded(std::shared_ptr<Session> session, std::uint32_t ms,
+                        std::chrono::milliseconds wall_timeout);
+/// Same guard around arbitrary work on the session (e.g. stepping + sampling a path trace).
+/// The work must only touch the session and state it owns (shared_ptr captures).
+GuardResult run_guarded(std::shared_ptr<Session> session, std::function<void(Session&)> work,
+                        std::chrono::milliseconds wall_timeout);
+
+}  // namespace mmsim::host
