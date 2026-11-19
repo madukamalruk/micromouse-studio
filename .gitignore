@@ -1,0 +1,29 @@
+# Build output
+build/
+out/
+*.o
+*.obj
+*.a
+*.lib
+*.exe
+*.dll
+*.pdb
+
+# Fetched third-party content (mazefiles has no licence; mms-cpp etc. fetched on demand)
+external/
+
+# Secrets / local config (never commit)
+.env*
+!.env.example
+.claude/settings.local.json
+
+# Runtime / editor state
+imgui.ini
+mmsim.json
+*.csv
+*.log
+.vscode/
+.idea/
+*.swp
+__pycache__/
+*.pyc
