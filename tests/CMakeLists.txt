@@ -1,12 +1,54 @@
+# Runtime DLLs (libstdc++, SDL2) come from MSYS2; make every test find them without a global PATH change.
+set(MMSIM_TEST_ENV "PATH=path_list_prepend:${MSYS2_UCRT64_BIN}")
+
 # --- Unit tests (doctest) ----------------------------------------------------
 add_executable(mmsim_unit_tests
     unit/main.cpp
-    unit/test_smoke.cpp)
-target_link_libraries(mmsim_unit_tests PRIVATE simcore mmhal doctest::doctest)
+    unit/test_smoke.cpp
+    unit/test_maze.cpp
+    unit/test_maze_validate.cpp
+    unit/test_maze_geometry.cpp
+    unit/test_camera.cpp)
+target_link_libraries(mmsim_unit_tests PRIVATE simcore mmsim_camera mmhal doctest::doctest)
+target_compile_definitions(mmsim_unit_tests PRIVATE MMSIM_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 mmsim_set_warnings(mmsim_unit_tests)
 
-add_test(NAME unit.smoke COMMAND mmsim_unit_tests)
+add_test(NAME unit.smoke COMMAND mmsim_unit_tests --test-suite-exclude=maze,app)
+add_test(NAME unit.maze  COMMAND mmsim_unit_tests --test-suite=maze)
+add_test(NAME unit.app   COMMAND mmsim_unit_tests --test-suite=app)
 set_tests_properties(unit.smoke PROPERTIES LABELS "unit")
+set_tests_properties(unit.maze  PROPERTIES LABELS "unit;maze")
+set_tests_properties(unit.app   PROPERTIES LABELS "unit;app")
+
+# --- Visual smoke tests: render headless (software renderer) and pixel-check every wall/post ---
+set(MAZEFILES "${PROJECT_SOURCE_DIR}/external/mazefiles")
+# Uses the default accelerated renderer = what users see (D3D11; on GPU-less CI runners Windows
+# provides WARP). SDL's --software rasterizer is NOT used here: it leaves seams/drops sub-3px
+# triangles (see docs/decisions.md D5), which would make pixel checks meaningless.
+function(mmsim_render_test name maze size)
+    add_test(NAME app.render_${name}
+        COMMAND mmsim --maze "${maze}" --hidden --size ${size} --frames 6 --exit ${ARGN}
+                --verify-render --screenshot "${CMAKE_BINARY_DIR}/screenshots/${name}.png")
+    set_tests_properties(app.render_${name} PROPERTIES LABELS "app;maze;visual"
+        ENVIRONMENT_MODIFICATION "${MMSIM_TEST_ENV}")
+endfunction()
+
+mmsim_render_test(tiny4x4 "${PROJECT_SOURCE_DIR}/mazes/test/tiny4x4.txt" 1280x800)
+if(EXISTS "${MAZEFILES}/classic/uk1987f.txt")
+    mmsim_render_test(uk1987f "${MAZEFILES}/classic/uk1987f.txt" 1280x800)
+    mmsim_render_test(japan2010hef_32x32 "${MAZEFILES}/halfsize/japan2010hef.txt" 2400x1600)
+else()
+    message(STATUS "mazefiles not fetched: UK1987/32x32 render tests skipped (run tools/fetch_mazes.ps1)")
+endif()
+
+# A broken maze file must make the app exit non-zero.
+add_test(NAME app.rejects_bad_maze
+    COMMAND mmsim --maze "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/maze/not_enclosed.txt"
+            --hidden --frames 1 --exit)
+set_tests_properties(app.rejects_bad_maze PROPERTIES WILL_FAIL TRUE LABELS "app;maze"
+    ENVIRONMENT_MODIFICATION "${MMSIM_TEST_ENV}")
+
+set_tests_properties(unit.smoke unit.maze unit.app PROPERTIES ENVIRONMENT_MODIFICATION "${MMSIM_TEST_ENV}")
 
 # --- HAL boundary checks (AGENTS.md rules 1-3) -------------------------------
 set(BOUNDARY_SCRIPT "${PROJECT_SOURCE_DIR}/tools/check_hal_boundary.py")

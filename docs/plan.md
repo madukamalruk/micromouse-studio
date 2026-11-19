@@ -61,12 +61,12 @@ Expected: `100% tests passed` (smoke + boundary + boundary-negative). First comm
 ## Slice 2 — Maze loader (`.txt` map / `.num` / `.maz`) + 2-D renderer + camera (M)
 **Goal:** open `uk1987f.txt` and see it.
 
-- [ ] 2.1 `tools/fetch_mazes.ps1` → shallow-clones `micromouseonline/mazefiles` @ `070f716d2379` into `external/mazefiles` (gitignored). Our own tiny mazes in `mazes/test/` (committed).
-- [ ] 2.2 `sim/core/maze`: `Maze` (W×H, per-cell NESW bits, start, start heading, goal set), `parse_text_map` (any non-space = wall, `+`/`o` posts, S/G markers, `\r\n` tolerated), `parse_num`, `parse_maz`, `write_text_map`, `write_maz`; errors carry line/col.
-- [ ] 2.3 `sim/core/maze_validate`: enclosed, consistent, rectangular + "official" report (unreachable cells, 3-wall start, single centre entrance, hollow centre post, wall-follower-solvable via simulated left/right follower).
-- [ ] 2.4 Tests: golden hash for `uk1987f.txt`; round-trip text→maz→text for every `classic/*.txt` (skipped with a clear message if mazes not fetched); malformed fixtures; each validation rule.
-- [ ] 2.5 `sim/app`: SDL2 window + ImGui (docking) + ImPlot fetched & pinned; `MazeRenderer` (ImGui draw list on a dockable "Maze" viewport): posts, walls (true walls dim, firmware-known solid — mms convention), coordinates, distance-to-goal numbers when idle; camera pan (drag) / zoom (wheel) / `F` fit; maze picker (file list of `mazes/` + `external/mazefiles`); `F12` screenshot.
-- [ ] 2.6 CLI flags for testability: `mmsim --maze <file> --screenshot <png> --frames N --exit`.
+- [x] 2.1 `tools/fetch_mazes.ps1` → shallow-clones `micromouseonline/mazefiles` @ `070f716d2379` into `external/mazefiles` (gitignored). Our own tiny mazes in `mazes/test/` (committed).
+- [x] 2.2 `sim/core/maze`: `Maze` (W×H, per-cell NESW bits, start, start heading, goal set), `parse_text_map` (any non-space = wall, `+`/`o` posts, S/G markers, `\r\n` tolerated), `parse_num`, `parse_maz`, `write_text_map`, `write_maz`; errors carry line/col.
+- [x] 2.3 `sim/core/maze_validate`: enclosed, consistent, rectangular + "official" report (unreachable cells, 3-wall start, single centre entrance, hollow centre post, wall-follower-solvable via simulated left/right follower).
+- [x] 2.4 Tests: golden hash for `uk1987f.txt`; round-trip text→maz→text for every `classic/*.txt` (skipped with a clear message if mazes not fetched); malformed fixtures; each validation rule.
+- [x] 2.5 `sim/app`: SDL2 window + ImGui (docking) + ImPlot fetched & pinned; `MazeRenderer` (ImGui draw list on a dockable "Maze" viewport): posts, walls (true walls dim, firmware-known solid — mms convention), coordinates, distance-to-goal numbers when idle; camera pan (drag) / zoom (wheel) / `F` fit; maze picker (file list of `mazes/` + `external/mazefiles`); `F12` screenshot.
+- [x] 2.6 CLI flags for testability: `mmsim --maze <file> --screenshot <png> --frames N --exit`.
 
 **Verify**
 ```powershell
@@ -233,4 +233,5 @@ Expected: report for all classic mazes; ≥ 90 % solved crash-free (failures lis
 - **Open (from PRD §13):** MSYS2 location; OK with generic classic mouse defaults; future GitHub remote?
 
 ## Next up
-Slice 1 done (2026-11-20): 7/7 tests green, first commit on `main`, nothing pushed. Open: LICENSE choice. Next: **Slice 2** — `tools/fetch_mazes.ps1`, maze model + parsers (TDD), then ImGui/ImPlot + SDL2 renderer.
+Slice 1 done (2026-11-20). Slice 2 done (2026-11-20): maze model + `.txt`/`.num`/`.maz` parsers/writers, validator, flood distances, geometry, SDL2+ImGui renderer with camera; 13/13 ctest green incl. GPU pixel checks on tiny4x4, UK 1987 and a 32x32. Nothing pushed.
+Next: **Slice 3** — `mmhal/hal.h` v1, hal_sim + DLL firmware host (lockstep), DC motor + diff-drive physics, collision, `arm-check` target.

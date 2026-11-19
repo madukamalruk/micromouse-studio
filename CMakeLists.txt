@@ -7,6 +7,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)  # no C++20 modules used; avoids per-file scan steps
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -23,6 +24,7 @@ target_include_directories(mmhal INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/hal/incl
 
 # --- Simulator ---------------------------------------------------------------
 add_subdirectory(sim/core)
+add_subdirectory(sim/app)
 
 # --- Tests -------------------------------------------------------------------
 add_subdirectory(tests)

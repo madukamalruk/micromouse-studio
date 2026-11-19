@@ -20,3 +20,10 @@ Format: date · decision · why · alternatives considered.
 ## D4 — 2026-11-20 · Generic classic mouse for Phase 1; GitHub remote later
 - Generic ≈100 g mouse, 4 IR + gyro until Neomouse V2 parameters arrive (Phase 2).
 - Repo will be pushed to GitHub later; CI workflow (`.github/workflows/ci.yml`) is ready. Always scan diffs and ask before any `git push`.
+
+## D5 — 2026-11-20 · GUI deps, renderer, visual verification, static runtime
+- **Deps (Slice 2):** Dear ImGui 1.93.0-docking, ImPlot 1.1, stb @ `6b5799b` (stb_image_write), SHA-256 pinned; SDL2 2.32.10 from MSYS2. Backend: SDL2 + SDL_Renderer (D3D11), per the ImGui `example_sdl2_sdlrenderer2` of the same version.
+- **Visual test = real renderer.** `mmsim --verify-render` pixel-checks every wall slot (present/absent) and post against the maze on the accelerated renderer. SDL's `--software` rasterizer leaves a 1-px seam on the diagonal of thin wall quads and drops some ~3-px post squares, so it is diagnostic only. Probes sample a strip across the wall thickness (robust to seams, still fails on any missing/extra wall).
+- **Static C/C++ runtime:** all exes/DLLs link `-static-libgcc -static-libstdc++` + static winpthread. Reason: `C:\MinGW\bin` (GCC 6.3) is on PATH and would otherwise supply an ABI-incompatible `libstdc++-6.dll`. Only `SDL2.dll` is copied next to `mmsim.exe`.
+- **Geometry lives in `sim/core/maze_geometry`** (metres; origin = centre of SW post; 180 mm pitch, 12 mm walls) so physics/raycast reuse exactly what is drawn.
+- **Maze text parser follows mms semantics:** any non-space char at a wall position is a wall (`+` or `o` posts); `.maz` = N*N bytes column-major, low nibble only.
