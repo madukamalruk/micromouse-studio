@@ -1,11 +1,12 @@
 #include "sim/host/session.hpp"
 
+#include <algorithm>
 #include <utility>
 
 namespace mmsim::host {
 
-Session::Session(core::Maze maze, core::RobotConfig cfg, core::MazeDims dims)
-    : world_(std::move(maze), std::move(cfg), dims), host_(*this) {}
+Session::Session(core::Maze maze, core::RobotConfig cfg, core::MazeDims dims, std::uint64_t seed)
+    : world_(std::move(maze), std::move(cfg), dims, seed), host_(*this) {}
 
 Session::~Session() = default;
 
@@ -66,16 +67,29 @@ float Session::battery_voltage() {
 std::int32_t Session::encoder_count(int side) {
     return world_.encoder_count(side);
 }
+// Firmware sees the measured IMU (noise, bias, quantisation), never ground truth.
 float Session::gyro_z_dps() {
-    return static_cast<float>(world_.gyro_z_dps());
+    return static_cast<float>(world_.imu().gyro_dps[2]);
+}
+void Session::imu(float gyro_dps[3], float accel_mps2[3]) {
+    const core::ImuReading& r = world_.imu();
+    for (int i = 0; i < 3; ++i) {
+        gyro_dps[i] = static_cast<float>(r.gyro_dps[i]);
+        accel_mps2[i] = static_cast<float>(r.accel_mps2[i]);
+    }
 }
 std::uint8_t Session::sensor_count() {
-    return 0;
-}  // distance sensors arrive in Slice 4
-std::uint16_t Session::sensor_read(std::uint8_t) {
-    return 0;
+    return static_cast<std::uint8_t>(std::min<std::size_t>(world_.sensor_count(), 255));
 }
-void Session::emitter_set(std::uint8_t, bool) {}
+std::uint16_t Session::sensor_read(std::uint8_t ch) {
+    return world_.sensor_raw(ch);
+}
+std::uint16_t Session::sensor_distance(std::uint8_t ch) {
+    return world_.sensor_distance_mm(ch);
+}
+void Session::emitter_set(std::uint8_t ch, bool on) {
+    world_.set_emitter(ch, on);
+}
 
 void Session::led_set(std::uint8_t led, bool on) {
     if (led < 8) led_state_[led] = on;

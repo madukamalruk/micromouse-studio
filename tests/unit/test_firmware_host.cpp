@@ -157,6 +157,35 @@ TEST_SUITE("host") {
         CHECK(a.theta == b.theta);
     }
 
+    TEST_CASE("host: HAL v2 sensing - hal_get_distance/encoders/gyro/accel reach the firmware") {
+        Maze box(1, 1);
+        box.add_boundary();
+        box.set_start({0, 0}, Dir::N);
+        box.set_goals({{0, 0}});
+        RobotConfig cfg = robot();
+        Session s(box, cfg);
+        REQUIRE_MESSAGE(s.load(fw("test_sensor_dump")), s.error());
+        s.run_ms(300);
+        CHECK(s.state() == FwState::Running);
+        CHECK(has_log(s, "sensors 4"));
+        // Front-left IR sees the north wall: within IR model accuracy (3 %) + noise.
+        const double truth_mm = s.world().sensors().true_distance(1) * 1000.0;
+        REQUIRE(s.telemetry_value("dist1").has_value());
+        CHECK(std::abs(*s.telemetry_value("dist1") - truth_mm) <= 0.03 * truth_mm + 3.0);
+        CHECK(*s.telemetry_value("raw1") > 1000.0f);  // close wall: strong IR return
+        CHECK(*s.telemetry_value("enc_left") == 0.0f);
+        CHECK(std::abs(*s.telemetry_value("gyro_z")) < 1.0f);  // still: noise + small bias only
+        CHECK(*s.telemetry_value("accel_z") == doctest::Approx(9.81).epsilon(0.01));
+    }
+
+    TEST_CASE("host: nothing in range reads HAL_DISTANCE_NONE") {
+        Session s(corridor(), robot());  // front sensors face 1 m of open corridor
+        REQUIRE(s.load(fw("test_sensor_dump")));
+        s.run_ms(50);
+        CHECK(*s.telemetry_value("dist1") == 65535.0f);
+        CHECK(*s.telemetry_value("dist0") < 200.0f);  // diagonal sees the side wall
+    }
+
 }  // TEST_SUITE
 
 // Separate suite + separate ctest entry: a hung firmware leaves a spinning detached thread

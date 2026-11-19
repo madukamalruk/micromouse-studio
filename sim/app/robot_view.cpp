@@ -18,6 +18,9 @@ constexpr Rgba kWheel{20, 22, 26, 255};
 constexpr Rgba kArrow{240, 245, 255, 255};
 constexpr Rgba kTrace{90, 200, 140, 200};
 constexpr Rgba kCrash{255, 90, 60, 255};
+constexpr Rgba kBeamIr{255, 80, 120, 255};
+constexpr Rgba kBeamTof{80, 220, 255, 255};
+constexpr Rgba kBeamOff{150, 150, 160, 255};
 
 ImVec2 S(const Camera& cam, double x, double y) {
     const Vec2 p = cam.world_to_screen({x, y});
@@ -61,6 +64,25 @@ void draw_robot(ImDrawList* dl, const Camera& cam, const core::World& w, const P
         pts.push_back(S(cam, p.x, p.y));
         dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), kTrace.packed(), ImDrawFlags_None,
                         std::max(1.0f, 0.002f * ppm));
+    }
+
+    // Sensor beams (behind the body): every ray of the last sample, faded by its weight in
+    // the beam profile; a dot where it hits. Emitter off -> grey.
+    if (opt.show_beams) {
+        const auto& ss = w.sensors();
+        const float thick = std::max(1.0f, 0.0008f * ppm);
+        const float dot = std::max(2.0f, 0.0018f * ppm);
+        for (std::size_t ch = 0; ch < ss.size(); ++ch) {
+            Rgba col = ss.config(ch).type == core::SensorType::ToF ? kBeamTof : kBeamIr;
+            if (ss.config(ch).type == core::SensorType::IR && !w.emitter(static_cast<int>(ch)))
+                col = kBeamOff;
+            for (const auto& r : ss.beam(ch)) {
+                Rgba c = col;
+                c.a = static_cast<std::uint8_t>(40 + 170 * std::clamp(r.weight, 0.0, 1.0));
+                dl->AddLine(S(cam, r.from.x, r.from.y), S(cam, r.to.x, r.to.y), c.packed(), thick);
+                if (r.hit) dl->AddCircleFilled(S(cam, r.to.x, r.to.y), dot, c.packed());
+            }
+        }
     }
 
     // Body = exactly the collision box.

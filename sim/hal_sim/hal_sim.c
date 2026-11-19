@@ -98,3 +98,31 @@ void hal_annotate_wall(uint8_t x, uint8_t y, char d, bool p) {
 void hal_annotate_clear(void) {
     g_api->annotate_clear(CTX);
 }
+
+/* ---- HAL v2 ------------------------------------------------------------------- */
+void hal_get_encoders(int32_t* left, int32_t* right) {
+    if (left) *left = g_api->encoder_count(CTX, HAL_LEFT);
+    if (right) *right = g_api->encoder_count(CTX, HAL_RIGHT);
+}
+
+void hal_get_gyro(hal_gyro_t* out) {
+    float g[3], a[3];
+    if (!out) return;
+    g_api->imu(CTX, g, a);
+    out->x_dps = g[0];
+    out->y_dps = g[1];
+    out->z_dps = g[2];
+}
+
+void hal_get_accel(hal_accel_t* out) {
+    float g[3], a[3];
+    if (!out) return;
+    g_api->imu(CTX, g, a);
+    out->x_mps2 = a[0];
+    out->y_mps2 = a[1];
+    out->z_mps2 = a[2];
+}
+
+uint16_t hal_get_distance(uint8_t ch) {
+    return g_api->sensor_distance(CTX, ch);
+}

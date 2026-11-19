@@ -41,6 +41,7 @@ struct Args {
     std::optional<std::string> firmware;  // NAME (from the firmware dir) or path to a .dll
     std::optional<fs::path> config;
     long long run_for_ms = -1;  // simulated time to run before the scripted frames
+    std::uint64_t seed = 1;     // noise seed (same seed + same firmware = same run)
     int frames = -1;            // -1 = run until closed
     bool exit_after = false;
     bool hidden = false;
@@ -106,6 +107,13 @@ std::optional<Args> parse_args(int argc, char** argv) {
             if (end == v || t < 0 || (!unit.empty() && unit != "s" && unit != "ms"))
                 return std::nullopt;
             a.run_for_ms = std::llround(unit == "ms" ? t : t * 1000.0);
+        } else if (s == "--seed") {
+            auto v = next();
+            if (!v) return std::nullopt;
+            char* end = nullptr;
+            const unsigned long long n = std::strtoull(v, &end, 0);
+            if (end == v || *end != '\0') return std::nullopt;
+            a.seed = n;
         } else if (s == "--frames") {
             if (auto v = next())
                 a.frames = std::max(1, std::atoi(v));
@@ -208,6 +216,7 @@ struct AppState {
     app::PathTrace trace;
     app::RobotViewOptions robot_view;
     bool log_autoscroll = true;
+    std::uint64_t seed = 1;
 };
 
 fs::path find_firmware_dir(const fs::path& root) {
@@ -242,7 +251,7 @@ void make_session(AppState& st) {
     st.running = false;
     st.sim_error.clear();
     if (!st.maze || !st.robot) return;
-    st.session = std::make_shared<host::Session>(*st.maze, *st.robot, st.dims);
+    st.session = std::make_shared<host::Session>(*st.maze, *st.robot, st.dims, st.seed);
     st.session->set_button(0, st.boot_buttons[0]);
     st.session->set_button(1, st.boot_buttons[1]);
     if (!st.firmware.empty() && !st.session->load(st.firmware)) st.sim_error = st.session->error();
@@ -508,6 +517,9 @@ void ui_run(AppState& st) {
     ImGui::Text("Pose    x %.4f  y %.4f m  %.1f deg", d.pose.x, d.pose.y,
                 d.pose.theta * 180.0 / 3.14159265358979);
     ImGui::Text("Speed   %.3f m/s   yaw %.1f deg/s", w.model().forward_speed(d), w.gyro_z_dps());
+    if (w.model().slip_enabled())
+        ImGui::Text("Slip    beta %.2f deg   wheel L %+.3f  R %+.3f m/s", d.beta * 57.2957795,
+                    w.model().slip_velocity(d, 0), w.model().slip_velocity(d, 1));
     ImGui::Text("Motor   L %.2f V   R %.2f V", w.motor_voltage(0), w.motor_voltage(1));
     if (w.overvoltage_events() > 0)
         ImGui::TextColored({1.0f, 0.75f, 0.3f, 1.0f}, "        clamped to %.1f V (%d times)",
@@ -526,9 +538,45 @@ void ui_run(AppState& st) {
         ImGui::TextColored(s.led(i) ? ImVec4{0.4f, 1.0f, 0.5f, 1} : ImVec4{0.35f, 0.37f, 0.4f, 1},
                            "%s", s.led(i) ? "(*)" : "( )");
     }
+
+    ImGui::SeparatorText("Sensors (as firmware sees them)");
+    const auto& imu = w.imu();
+    ImGui::Text("Gyro z  %.2f deg/s  (bias %.3f)", imu.gyro_dps[2], w.imu_model().gyro_bias_dps());
+    ImGui::Text("Accel   x %.2f  y %.2f  z %.2f m/s^2", imu.accel_mps2[0], imu.accel_mps2[1],
+                imu.accel_mps2[2]);
+    const auto& ss = w.sensors();
+    if (ss.size() > 0 &&
+        ImGui::BeginTable("dist", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("ch");
+        ImGui::TableSetupColumn("name");
+        ImGui::TableSetupColumn("mm");
+        ImGui::TableSetupColumn("raw");
+        ImGui::TableHeadersRow();
+        for (std::size_t ch = 0; ch < ss.size(); ++ch) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("%zu", ch);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(ss.config(ch).name.c_str());
+            ImGui::TableNextColumn();
+            const auto mm = ss.distance_mm(ch);
+            if (mm == core::kDistanceNone)
+                ImGui::TextDisabled("--");
+            else
+                ImGui::Text("%u", static_cast<unsigned>(mm));
+            ImGui::TableNextColumn();
+            ImGui::Text("%u%s", static_cast<unsigned>(ss.raw(ch)),
+                        w.emitter(static_cast<int>(ch)) ? "" : " (off)");
+        }
+        ImGui::EndTable();
+    }
+    ImGui::TextDisabled("Seed %llu", static_cast<unsigned long long>(w.seed()));
+
     ImGui::Checkbox("Path trace", &st.robot_view.show_trace);
     ImGui::SameLine();
     ImGui::Checkbox("Crash marks", &st.robot_view.show_crashes);
+    ImGui::SameLine();
+    ImGui::Checkbox("Sensor beams", &st.robot_view.show_beams);
     ImGui::End();
 }
 
@@ -608,6 +656,7 @@ int main(int argc, char** argv) {
 
     AppState st;
     st.root = args.root ? *args.root : find_root();
+    st.seed = args.seed;
     st.library = scan_library(st.root);
     {
         const fs::path cfg =

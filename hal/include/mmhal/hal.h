@@ -28,7 +28,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define MMHAL_VERSION 1
+#define MMHAL_VERSION 2 /* v2 (Slice 4): hal_get_distance/encoders/gyro/accel */
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,13 +51,28 @@ void hal_motor_set_duty(hal_side_t side, float duty); /* -1..+1 of battery volta
 float hal_battery_voltage(void);                      /* volts */
 
 /* ---- Proprioception ----------------------------------------------------------- */
-int32_t hal_encoder_count(hal_side_t side); /* quadrature counts, + = wheel forward, wraps */
-float hal_gyro_z_dps(void);                 /* yaw rate, deg/s, + = counter-clockwise (left turn) */
+/* Encoder counts: + = wheel forward unless the board wiring inverts a channel; wraps. */
+int32_t hal_encoder_count(hal_side_t side);
+void hal_get_encoders(int32_t* left, int32_t* right); /* both channels, same instant */
+float hal_gyro_z_dps(void); /* yaw rate, deg/s, + = counter-clockwise (left turn) */
+
+typedef struct {
+    float x_dps, y_dps, z_dps; /* body rates; z = yaw, + = CCW */
+} hal_gyro_t;
+typedef struct {
+    float x_mps2, y_mps2, z_mps2; /* body frame: x forward, y left, z up (gravity +9.81) */
+} hal_accel_t;
+void hal_get_gyro(hal_gyro_t* out);
+void hal_get_accel(hal_accel_t* out);
 
 /* ---- Exteroception ------------------------------------------------------------ */
+/* Channel order for 4-sensor boards: 0 left (side/diag), 1 front-left, 2 front-right, 3 right. */
+#define HAL_DISTANCE_NONE 0xFFFFu
 uint8_t hal_sensor_count(void);
-uint16_t hal_sensor_read(uint8_t ch); /* raw: mm for ToF, ADC counts for IR */
-void hal_emitter_set(uint8_t ch, bool on);
+uint16_t hal_sensor_read(uint8_t ch);      /* raw: mm for ToF, ADC counts for IR */
+uint16_t hal_get_distance(uint8_t ch);     /* mm (IR: board calibration applied);
+                                              HAL_DISTANCE_NONE = nothing in range */
+void hal_emitter_set(uint8_t ch, bool on); /* IR emitters; the board pulses them by default */
 
 /* ---- User interface ----------------------------------------------------------- */
 void hal_led_set(uint8_t led, bool on);

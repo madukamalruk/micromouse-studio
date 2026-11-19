@@ -25,6 +25,30 @@
     "max_voltage_v": 6.0
   },
   "battery_voltage_v": 7.4,
-  "encoder_counts_per_motor_rev": 28,
+  "encoder": {
+    "counts_per_motor_rev": 28,
+    "invert_left": false,
+    "invert_right": false
+  },
+  "imu": {
+    "gyro_noise_dps": 0.07,
+    "gyro_bias_dps": 0.0,
+    "gyro_bias_walk_dps_per_sqrt_s": 0.002,
+    "gyro_quant_dps": 0.061,
+    "gyro_range_dps": 2000,
+    "accel_noise_mps2": 0.02,
+    "accel_quant_mps2": 0.0024,
+    "accel_range_mps2": 156.9
+  },
+  "slip": {
+    "enabled": true,
+    "mu": 1.0,
+    "long_stiffness_n_per_mps": 20.0,
+    "slip_gradient_deg_per_g": 1.5
+  },
+  "sensor_layout": {
+    "preset": "front_diagonal",
+    "type": "ir"
+  },
   "collision_restitution": 0.0
 }

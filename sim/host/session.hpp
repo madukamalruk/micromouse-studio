@@ -54,7 +54,8 @@ class Session final : public HalBackend {
     static constexpr std::size_t kTelemetryHistory = 20000;
     static constexpr std::size_t kMaxLogLines = 10000;
 
-    Session(core::Maze maze, core::RobotConfig cfg, core::MazeDims dims = {});
+    Session(core::Maze maze, core::RobotConfig cfg, core::MazeDims dims = {},
+            std::uint64_t seed = 1);
     ~Session() override;
     Session(const Session&) = delete;
     Session& operator=(const Session&) = delete;
@@ -95,6 +96,8 @@ class Session final : public HalBackend {
     float gyro_z_dps() override;
     std::uint8_t sensor_count() override;
     std::uint16_t sensor_read(std::uint8_t ch) override;
+    std::uint16_t sensor_distance(std::uint8_t ch) override;
+    void imu(float gyro_dps[3], float accel_mps2[3]) override;
     void emitter_set(std::uint8_t ch, bool on) override;
     void led_set(std::uint8_t led, bool on) override;
     bool button_pressed(std::uint8_t btn) override;

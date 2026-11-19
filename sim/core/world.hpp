@@ -8,6 +8,7 @@
 #include "sim/core/maze.hpp"
 #include "sim/core/maze_geometry.hpp"
 #include "sim/core/robot_config.hpp"
+#include "sim/core/sensors.hpp"
 
 namespace mmsim::core {
 
@@ -27,12 +28,15 @@ class World {
     static constexpr std::int64_t kTickUs = 1000;
     static constexpr int kSubsteps = 4;
 
-    World(Maze maze, RobotConfig cfg, MazeDims dims = {});
+    /// seed drives every noise source; same seed + same inputs = identical run.
+    World(Maze maze, RobotConfig cfg, MazeDims dims = {}, std::uint64_t seed = 1);
+    std::uint64_t seed() const { return seed_; }
 
     const Maze& maze() const { return maze_; }
     const MazeDims& dims() const { return dims_; }
     const RobotConfig& config() const { return cfg_; }
     const DriveModel& model() const { return model_; }
+    const CollisionWorld& collision() const { return collide_; }
     const DriveState& drive() const { return s_; }
     DriveState& drive_mut() { return s_; }
 
@@ -48,14 +52,29 @@ class World {
     const std::vector<CrashEvent>& crashes() const { return crashes_; }
     bool in_contact() const { return in_contact_; }
 
-    /// Ideal sensors (noise models arrive in Slice 4).
+    /// Encoder counts (quantised wheel angle, wiring inversion applied; no other noise).
     std::int32_t encoder_count(int side) const;
+    /// TRUE yaw rate in deg/s (ground truth; firmware sees imu()).
     double gyro_z_dps() const;
+    /// TRUE body-frame acceleration averaged over the last tick (m/s^2).
+    Vec2d true_accel_body() const { return accel_body_; }
+    /// Measured IMU sample of the last tick (noise, bias, quantisation).
+    const ImuReading& imu() const { return imu_.reading(); }
+    const Imu& imu_model() const { return imu_; }
+
+    /// Distance sensors (delivered readings, see SensorSuite).
+    const SensorSuite& sensors() const { return sensors_; }
+    std::size_t sensor_count() const { return sensors_.size(); }
+    std::uint16_t sensor_raw(int ch) const;
+    std::uint16_t sensor_distance_mm(int ch) const;
+    void set_emitter(int ch, bool on);
+    bool emitter(int ch) const;
 
     Pose start_pose() const;
 
   private:
     void substep(double dt);
+    void accumulate_accel(const DriveState& prev);
 
     Maze maze_;
     RobotConfig cfg_;
@@ -68,6 +87,12 @@ class World {
     std::vector<CrashEvent> crashes_;
     bool in_contact_ = false;
     double body_radius_ = 0.0;  // farthest body corner from the axle centre
+    std::uint64_t seed_ = 1;
+    SensorSuite sensors_;
+    std::vector<bool> emitters_;
+    Imu imu_;
+    Vec2d accel_body_;
+    Vec2d accel_sum_;  // world-frame velocity change accumulated over the tick
 };
 
 }  // namespace mmsim::core

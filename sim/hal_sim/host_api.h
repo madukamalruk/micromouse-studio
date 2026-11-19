@@ -9,7 +9,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define MMSIM_HOST_ABI 1
+#define MMSIM_HOST_ABI 2
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,8 +30,11 @@ typedef struct mmsim_host_api {
     int32_t (*encoder_count)(void* ctx, int side);
     float (*gyro_z_dps)(void* ctx);
 
+    void (*imu)(void* ctx, float gyro_dps[3], float accel_mps2[3]);
+
     uint8_t (*sensor_count)(void* ctx);
     uint16_t (*sensor_read)(void* ctx, uint8_t ch);
+    uint16_t (*sensor_distance)(void* ctx, uint8_t ch);
     void (*emitter_set)(void* ctx, uint8_t ch, bool on);
 
     void (*led_set)(void* ctx, uint8_t led, bool on);

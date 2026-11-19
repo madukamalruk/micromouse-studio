@@ -35,6 +35,9 @@ class HalBackend {
     virtual float gyro_z_dps() = 0;
     virtual std::uint8_t sensor_count() = 0;
     virtual std::uint16_t sensor_read(std::uint8_t ch) = 0;
+    virtual std::uint16_t sensor_distance(std::uint8_t ch) = 0;
+    /// Measured IMU sample: body-frame rates (deg/s) and accelerations (m/s^2).
+    virtual void imu(float gyro_dps[3], float accel_mps2[3]) = 0;
     virtual void emitter_set(std::uint8_t ch, bool on) = 0;
     virtual void led_set(std::uint8_t led, bool on) = 0;
     virtual bool button_pressed(std::uint8_t btn) = 0;

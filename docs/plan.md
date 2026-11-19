@@ -133,13 +133,13 @@ Expected tests: straight-line heading drift < 1e-9 rad/10 m; circle radius withi
 ## Slice 4 — Raycast distance sensors, encoders, gyro, noise (M)
 **Goal:** firmware sees the world only through realistic sensor data.
 
-- [ ] 4.1 `sim/core/raycast`: ray vs wall/post rectangles (exact), optional cone = N rays → min.
-- [ ] 4.2 `ISensorModel` + `ToFModel` (mm, range limit, σ, quantisation, rate, latency) + `IRReflectanceModel` (ADC = f(d, angle), emitter on/off, ambient, saturation). Selected by `"type"` in JSON.
-- [ ] 4.3 `Encoder` (CPR × gear, integer counts from accumulated wheel angle, optional noise/missed counts), `Gyro` (σ, bias, bias drift).
-- [ ] 4.4 `Rng` per source seeded from world seed (`splitmix64`/`xoshiro256**`), documented derivation.
-- [ ] 4.5 GUI overlay: sensor rays + hit points (toggle).
-- [ ] 4.6 Test firmware `firmware/test_sensor_dump` (logs all channels at 100 Hz).
-- [ ] 4.7 Optional wheel slip: lateral-slip clamp + longitudinal traction limit (moved from 3.5; default off keeps Slice 3 results exact).
+- [x] 4.1 Raycast in `CollisionWorld::raycast` (slab method through the collision grid, exact); cone = N weighted rays (D7).
+- [x] 4.2 `SensorSuite` (one class, `type` = `ir` | `tof` in JSON; presets `front_side` / `front_diagonal` + overrides): ToF (mm, range, σ + relative σ, quantisation, rate, latency) and IR reflectance (ADC = ambient + gain·cos^p/(d+d0)², emitter on/off, ADC clamp, inverse model as calibration). HAL v2 `hal_get_distance`.
+- [x] 4.3 Encoders (CPR × gear, floor quantisation, wiring inversion; missed counts not modelled) + IMU (gyro σ, bias, bias walk, LSB, range; accelerometer). HAL v2 `hal_get_encoders` / `hal_get_gyro` / `hal_get_accel`.
+- [x] 4.4 `Rng` (xoshiro256**) per source, seed = splitmix64(world seed ^ FNV-1a(name)); `--seed N`.
+- [x] 4.5 GUI overlay: sensor rays weighted by beam profile + hit dots (toggle "Sensor beams"); Run panel shows distances/raw, IMU, slip.
+- [x] 4.6 Test firmware `firmware/test_sensor_dump` (telemetry every 10 ms, log line every 100 ms); arm-check clean.
+- [x] 4.7 Linear tyre slip (slip gradient + traction cap + skid limit), `slip.enabled` (D7).
 
 **Verify**
 ```powershell
@@ -236,4 +236,5 @@ Expected: report for all classic mazes; ≥ 90 % solved crash-free (failures lis
 ## Next up
 Slice 1 done (2026-11-20). Slice 2 done (2026-11-20): maze model + `.txt`/`.num`/`.maz` parsers/writers, validator, flood distances, geometry, SDL2+ImGui renderer with camera; 13/13 ctest green incl. GPU pixel checks on tiny4x4, UK 1987 and a 32x32. Nothing pushed.
 Slice 3 done (2026-11-20): HAL v1 + hal_sim, fiber-based lockstep firmware host with DLL reload/faults/watchdog, DC motor + diff-drive model checked against closed-form results, OBB-vs-AABB continuous collision with crash events, robot config JSON, GUI robot view + Run/Log panels, arm-check. Nothing pushed.
-Next: **Slice 4** — sensor models (IR/ToF raycast, encoder/gyro noise), wheel slip.
+Slice 4 done (2026-11-20): HAL v2 (distance, encoders, 3-axis gyro/accel), raycast IR/ToF sensors with beam profile, rate, latency and seeded noise, encoder/IMU models, linear tyre slip, GUI beam overlay + sensor panel, `--seed`. Nothing pushed.
+Next: **Slice 5** — demo firmware: flood fill + smooth turns, real time on UK 1987.

@@ -19,7 +19,9 @@ namespace {
 RobotConfig robot() {
     auto r = load_robot_config(test_paths::source_dir() / "config/robots/generic_classic.json");
     REQUIRE(r.ok());
-    return *r.config;
+    RobotConfig c = *r.config;
+    c.slip.enabled = false;  // rigid contact: these tests pin exact no-slip behaviour
+    return c;
 }
 
 // 1 x 6 corridor, start (0,0) facing north.
@@ -153,8 +155,7 @@ TEST_SUITE("physics") {
         World w(corridor(), robot());
         auto& s = w.drive_mut();
         s.wheel_angle[0] = 2.0 * pi;  // exactly one wheel revolution
-        const double counts_per_wheel_rev =
-            w.config().encoder_counts_per_motor_rev * w.config().motor.gear_ratio;
+        const double counts_per_wheel_rev = w.config().encoder_counts_per_wheel_rev();
         CHECK(w.encoder_count(0) == static_cast<int>(counts_per_wheel_rev));
         s.wheel_speed[0] = -1.0;
         s.wheel_speed[1] = 1.0;  // spin CCW

@@ -52,7 +52,9 @@ struct HostCallbacks {
     static float gyro_z_dps(void* c) { return H(c).be_.gyro_z_dps(); }
     static uint8_t sensor_count(void* c) { return H(c).be_.sensor_count(); }
     static uint16_t sensor_read(void* c, uint8_t ch) { return H(c).be_.sensor_read(ch); }
+    static uint16_t sensor_distance(void* c, uint8_t ch) { return H(c).be_.sensor_distance(ch); }
     static void emitter_set(void* c, uint8_t ch, bool on) { H(c).be_.emitter_set(ch, on); }
+    static void imu(void* c, float g[3], float a[3]) { H(c).be_.imu(g, a); }
     static void led_set(void* c, uint8_t led, bool on) { H(c).be_.led_set(led, on); }
     static bool button_pressed(void* c, uint8_t b) { return H(c).be_.button_pressed(b); }
     static void log(void* c, const char* line) { H(c).be_.log(line ? line : ""); }
@@ -85,7 +87,9 @@ FirmwareHost::FirmwareHost(HalBackend& backend)
     a.gyro_z_dps = &HostCallbacks::gyro_z_dps;
     a.sensor_count = &HostCallbacks::sensor_count;
     a.sensor_read = &HostCallbacks::sensor_read;
+    a.sensor_distance = &HostCallbacks::sensor_distance;
     a.emitter_set = &HostCallbacks::emitter_set;
+    a.imu = &HostCallbacks::imu;
     a.led_set = &HostCallbacks::led_set;
     a.button_pressed = &HostCallbacks::button_pressed;
     a.log = &HostCallbacks::log;

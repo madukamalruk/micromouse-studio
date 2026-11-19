@@ -24,9 +24,11 @@ class PathTrace {
 struct RobotViewOptions {
     bool show_trace = true;
     bool show_crashes = true;
+    bool show_beams = true;  // distance-sensor rays of the last sample
 };
 
-/// Draws trace, crash markers, body footprint (collision box), wheels and heading arrow.
+/// Draws trace, sensor beams, crash markers, body footprint (collision box), wheels and
+/// heading arrow.
 void draw_robot(ImDrawList* dl, const Camera& cam, const core::World& w, const PathTrace& trace,
                 const RobotViewOptions& opt);
 
