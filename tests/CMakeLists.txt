@@ -14,7 +14,9 @@ add_executable(mmsim_unit_tests
     unit/test_collision.cpp
     unit/test_firmware_host.cpp
     unit/test_sensors.cpp
-    unit/test_slip.cpp)
+    unit/test_slip.cpp
+    unit/test_pacer.cpp
+    unit/test_demo_floodfill.cpp)
 target_link_libraries(mmsim_unit_tests PRIVATE simcore mmsim_host mmsim_camera mmhal doctest::doctest)
 target_compile_definitions(mmsim_unit_tests PRIVATE
     MMSIM_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
@@ -22,12 +24,13 @@ target_compile_definitions(mmsim_unit_tests PRIVATE
 add_dependencies(mmsim_unit_tests firmware_all)
 mmsim_set_warnings(mmsim_unit_tests)
 
-add_test(NAME unit.smoke    COMMAND mmsim_unit_tests --test-suite-exclude=maze,app,physics,host,watchdog,sensors)
+add_test(NAME unit.smoke    COMMAND mmsim_unit_tests --test-suite-exclude=maze,app,physics,host,watchdog,sensors,integration)
 add_test(NAME unit.maze     COMMAND mmsim_unit_tests --test-suite=maze)
 add_test(NAME unit.app      COMMAND mmsim_unit_tests --test-suite=app)
 add_test(NAME unit.physics  COMMAND mmsim_unit_tests --test-suite=physics)
 add_test(NAME unit.sensors  COMMAND mmsim_unit_tests --test-suite=sensors)
 add_test(NAME unit.host     COMMAND mmsim_unit_tests --test-suite=host)
+add_test(NAME integration.demo_floodfill COMMAND mmsim_unit_tests --test-suite=integration)
 # Own process: a hung firmware leaves a detached spinning thread until exit.
 add_test(NAME unit.watchdog COMMAND mmsim_unit_tests --test-suite=watchdog)
 set_tests_properties(unit.smoke    PROPERTIES LABELS "unit")
@@ -36,6 +39,7 @@ set_tests_properties(unit.app      PROPERTIES LABELS "unit;app")
 set_tests_properties(unit.physics  PROPERTIES LABELS "unit;physics")
 set_tests_properties(unit.sensors  PROPERTIES LABELS "unit;sensors")
 set_tests_properties(unit.host     PROPERTIES LABELS "unit;host")
+set_tests_properties(integration.demo_floodfill PROPERTIES LABELS "integration" TIMEOUT 900)
 set_tests_properties(unit.watchdog PROPERTIES LABELS "unit;host" TIMEOUT 30)
 
 # --- Visual smoke tests: render headless (software renderer) and pixel-check every wall/post ---
@@ -67,6 +71,7 @@ set_tests_properties(app.rejects_bad_maze PROPERTIES WILL_FAIL TRUE LABELS "app;
     ENVIRONMENT_MODIFICATION "${MMSIM_TEST_ENV}")
 
 set_tests_properties(unit.smoke unit.maze unit.app unit.physics unit.sensors unit.host unit.watchdog
+    integration.demo_floodfill
     PROPERTIES ENVIRONMENT_MODIFICATION "${MMSIM_TEST_ENV}")
 
 # --- HAL boundary checks (AGENTS.md rules 1-3) -------------------------------

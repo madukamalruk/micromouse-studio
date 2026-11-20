@@ -153,11 +153,11 @@ Expected: raycast ±0.1 mm vs analytic; noise mean/σ within 2 % over 10 k sampl
 ## Slice 5 — Demo firmware: flood fill + smooth turns, real time on UK 1987 (L)
 **Goal:** the headline demo — the same C files that would go onto the robot solve a classic maze in the sim.
 
-- [ ] 5.1 `firmware/demo/` (C11, split like real firmware): `motion.c` (trapezoidal profiles for forward + rotation), `control.c` (1 kHz ISR: encoder/gyro odometry, PD velocity + ω loops, wall-centring from side sensors), `sensors.c` (wall detection thresholds, front-wall alignment), `maze.c` + `floodfill.c` (search to goal, return to start, compute fastest path), `moves.c` (cell-straight, smooth 90° turns as arc/clothoid-ish profiles, in-place 180°), `main.c` (`fw_main`: calibrate → search → return → speed run; LED/button states).
-- [ ] 5.2 Firmware uses `hal_annotate_*` for known walls/flood values and `hal_telemetry` for v/ω setpoints & errors (visible later in Slice 6).
-- [ ] 5.3 Real-time pacing in the GUI: 1× wall-clock tracking, "behind real time" indicator.
-- [ ] 5.4 Internal headless harness in tests (`run_world(fw, maze, seed, limits)`) — reused by the CLI in Slice 8.
-- [ ] 5.5 Integration tests: UK 1987 (seed 1) search+return+speed run, zero crashes, < 5 min sim time; plus 3 of our small test mazes.
+- [x] 5.1 `firmware/demo_floodfill/` (C11, split like real firmware): `control.c` (1 kHz ISR: encoder/gyro odometry, trapezoidal profiles, PD + feed-forward, wall-centring from the diagonals), `sensors.c` (wall thresholds), `maze.c` (flood fill: search to goal, search back, known-path speed run), `mouse.c` (moves, front-wall squaring, in-place 90/180 turns), `motors.c` (6 V cap, 20 ms reversal coast), `main.c` (calibrate -> search -> blink -> return -> speed run -> blink). Smooth arc turns deferred (D8).
+- [x] 5.2 Firmware uses `hal_annotate_wall` / `hal_annotate_cell_text` (map + flood values) and `hal_telemetry` (v/w set-points, measured, steering, errors every 10 ms).
+- [x] 5.3 Real-time pacing in the GUI (`sim/host/pacer`): 1x / 2x / 5x / 10x / Max, play/pause, step 1/10/100 ms, measured ratio + "behind" indicator; `--speed`, `--live-for` for checks.
+- [x] 5.4 Headless harness `host::run_headless(session, limits)` (`sim/host/harness`) — reused by the CLI in Slice 8.
+- [x] 5.5 Integration tests (`ctest -L integration`): UK 1987 seeds 1-3 (< 5 min sim, 0 crashes, mapped walls all correct), 3 generated 16x16 mazes, UK 1988/2000/2017 when mazefiles are present, determinism.
 
 **Verify**
 ```powershell
@@ -237,4 +237,5 @@ Expected: report for all classic mazes; ≥ 90 % solved crash-free (failures lis
 Slice 1 done (2026-11-20). Slice 2 done (2026-11-20): maze model + `.txt`/`.num`/`.maz` parsers/writers, validator, flood distances, geometry, SDL2+ImGui renderer with camera; 13/13 ctest green incl. GPU pixel checks on tiny4x4, UK 1987 and a 32x32. Nothing pushed.
 Slice 3 done (2026-11-20): HAL v1 + hal_sim, fiber-based lockstep firmware host with DLL reload/faults/watchdog, DC motor + diff-drive model checked against closed-form results, OBB-vs-AABB continuous collision with crash events, robot config JSON, GUI robot view + Run/Log panels, arm-check. Nothing pushed.
 Slice 4 done (2026-11-20): HAL v2 (distance, encoders, 3-axis gyro/accel), raycast IR/ToF sensors with beam profile, rate, latency and seeded noise, encoder/IMU models, linear tyre slip, GUI beam overlay + sensor panel, `--seed`. Nothing pushed.
-Next: **Slice 5** — demo firmware: flood fill + smooth turns, real time on UK 1987.
+Slice 5 done (2026-11-20): demo_floodfill firmware solves UK 1987 (search 42 s, return 34 s, speed run 21 s, 0 crashes) and 6 other mazes; headless harness; GUI pacing 1x-10x/Max exact to 0.01 %. Nothing pushed.
+Next: **Slice 6** — telemetry plots, controls, trace, annotations (incl. cell colours), replay.

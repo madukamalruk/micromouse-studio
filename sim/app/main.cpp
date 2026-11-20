@@ -26,6 +26,7 @@
 #include "sim/core/maze_validate.hpp"
 #include "sim/core/robot_config.hpp"
 #include "sim/core/version.hpp"
+#include "sim/host/pacer.hpp"
 #include "sim/host/session.hpp"
 
 namespace fs = std::filesystem;
@@ -42,6 +43,8 @@ struct Args {
     std::optional<fs::path> config;
     long long run_for_ms = -1;  // simulated time to run before the scripted frames
     std::uint64_t seed = 1;     // noise seed (same seed + same firmware = same run)
+    double speed = 1.0;         // pacing: 1, 2, 5, 10 or 0 = max
+    double live_for_s = -1.0;   // run the live (paced) loop this long, report, exit
     int frames = -1;            // -1 = run until closed
     bool exit_after = false;
     bool hidden = false;
@@ -58,6 +61,9 @@ void print_usage() {
         "  --firmware NAME|DLL  firmware to run (NAME = build/<preset>/firmware_bin/NAME.dll)\n"
         "  --config FILE        robot config JSON (default config/robots/generic_classic.json)\n"
         "  --run-for T          simulate T (e.g. 3s, 250ms) as fast as possible, then render\n"
+        "  --seed N             noise seed (default 1): same seed + firmware = same run\n"
+        "  --speed S            pacing: 1, 2, 5, 10 or max (default 1)\n"
+        "  --live-for T         play paced for T wall seconds, print sim/wall time, exit\n"
         "  --screenshot PNG     save a screenshot of the last frame\n"
         "  --frames N           render N frames\n"
         "  --exit               exit after --frames\n"
@@ -114,6 +120,23 @@ std::optional<Args> parse_args(int argc, char** argv) {
             const unsigned long long n = std::strtoull(v, &end, 0);
             if (end == v || *end != '\0') return std::nullopt;
             a.seed = n;
+        } else if (s == "--speed") {
+            auto v = next();
+            if (!v) return std::nullopt;
+            const std::string sv = v;
+            if (sv == "max") {
+                a.speed = 0.0;
+            } else {
+                char* end = nullptr;
+                a.speed = std::strtod(v, &end);
+                if (end == v || a.speed <= 0.0) return std::nullopt;
+            }
+        } else if (s == "--live-for") {
+            auto v = next();
+            if (!v) return std::nullopt;
+            char* end = nullptr;
+            a.live_for_s = std::strtod(v, &end);
+            if (end == v || a.live_for_s <= 0.0) return std::nullopt;
         } else if (s == "--frames") {
             if (auto v = next())
                 a.frames = std::max(1, std::atoi(v));
@@ -216,6 +239,11 @@ struct AppState {
     app::PathTrace trace;
     app::RobotViewOptions robot_view;
     bool log_autoscroll = true;
+    // Pacing (Slice 5): speed multiplier, measured sim/real ratio over a sliding window.
+    host::Pacer pacer;
+    double ratio = 0.0;        // simulated s per wall s while running
+    double window_wall = 0.0;  // accumulators for the ratio window
+    long long window_sim_ms = 0;
     std::uint64_t seed = 1;
 };
 
@@ -260,18 +288,29 @@ void make_session(AppState& st) {
 
 /// Advances the simulation by `ms` ticks on a guarded worker; a firmware that stops calling
 /// the HAL (endless loop) is detected and abandoned instead of freezing the GUI.
-void advance(AppState& st, long long ms) {
-    if (!st.session || ms <= 0) return;
+// Runs `ms` simulated ms, or (budget_s > 0) as many as fit in budget_s of wall time.
+// Returns the simulated ms actually run.
+long long advance(AppState& st, long long ms, double budget_s = 0.0) {
+    if (!st.session || (ms <= 0 && budget_s <= 0.0)) return 0;
     auto pts = std::make_shared<std::vector<core::Pose>>();
+    auto ran = std::make_shared<long long>(0);
     const auto r = host::run_guarded(
         st.session,
-        [ms, pts](host::Session& s) {
-            for (long long i = 0; i < ms; ++i) {
+        [ms, budget_s, pts, ran](host::Session& s) {
+            const auto t0 = std::chrono::steady_clock::now();
+            const long long limit = budget_s > 0.0 ? 10000000 : ms;
+            for (long long i = 0; i < limit; ++i) {
                 s.step_tick();
+                ++*ran;
                 if (s.time_us() % 5000 == 0) pts->push_back(s.world().drive().pose);
+                if (budget_s > 0.0 && i % 16 == 15 &&
+                    std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() >=
+                        budget_s)
+                    break;
             }
         },
-        std::chrono::milliseconds(2000 + ms));
+        std::chrono::milliseconds(2000 + std::max(0ll, ms) +
+                                  static_cast<long long>(budget_s * 1000.0)));
     if (r == host::GuardResult::Hung) {
         st.sim_error =
             "Firmware hung: no HAL call for 2 s (endless loop without "
@@ -279,10 +318,18 @@ void advance(AppState& st, long long ms) {
             "Session abandoned; press Reset to reload.";
         st.session.reset();
         st.running = false;
-        return;
+        return 0;
     }
     for (const auto& p : *pts) st.trace.add(p);
     st.trace.add(st.session->world().drive().pose);
+    return *ran;
+}
+
+void set_running(AppState& st, bool on) {
+    st.running = on;
+    st.pacer.reset();
+    st.window_wall = 0.0;
+    st.window_sim_ms = 0;
 }
 
 void load_maze(AppState& st, const fs::path& p) {
@@ -489,15 +536,42 @@ void ui_run(AppState& st) {
     ImGui::SeparatorText("Control");
     const bool have = st.session && st.session->state() != host::FwState::LoadError;
     ImGui::BeginDisabled(!have);
-    if (ImGui::Button(st.running ? "Pause (Space)" : "Run (Space)")) st.running = !st.running;
-    ImGui::SameLine();
-    if (ImGui::Button("Step 1 ms")) {
-        st.running = false;
-        advance(st, 1);
-    }
-    ImGui::EndDisabled();
+    if (ImGui::Button(st.running ? "Pause (Space)" : "Play (Space)")) set_running(st, !st.running);
     ImGui::SameLine();
     if (ImGui::Button("Reset (R)")) make_session(st);  // fresh World + DLL reload
+    ImGui::TextUnformatted("Step");
+    for (int ms : {1, 10, 100}) {
+        ImGui::SameLine();
+        const std::string label = std::to_string(ms) + " ms";
+        if (ImGui::Button(label.c_str())) {
+            set_running(st, false);
+            advance(st, ms);
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::TextUnformatted("Speed");
+    struct SpeedOpt {
+        const char* label;
+        double speed;
+    };
+    static constexpr SpeedOpt kSpeeds[] = {
+        {"1x", 1.0}, {"2x", 2.0}, {"5x", 5.0}, {"10x", 10.0}, {"Max", host::Pacer::kMax}};
+    for (const auto& o : kSpeeds) {
+        ImGui::SameLine();
+        if (ImGui::RadioButton(o.label, st.pacer.speed() == o.speed)) {
+            st.pacer.set_speed(o.speed);
+            st.window_wall = 0.0;
+            st.window_sim_ms = 0;
+        }
+    }
+    if (st.running && st.ratio > 0.0) {
+        const bool behind = !st.pacer.is_max() && st.ratio < 0.97 * st.pacer.speed();
+        if (behind)
+            ImGui::TextColored({1.0f, 0.6f, 0.3f, 1.0f}, "%.1fx real time - behind (sim too slow)",
+                               st.ratio);
+        else
+            ImGui::TextDisabled("%.1fx real time", st.ratio);
+    }
 
     if (!st.sim_error.empty())
         ImGui::TextColored({1.0f, 0.5f, 0.35f, 1.0f}, "%s", st.sim_error.c_str());
@@ -657,6 +731,7 @@ int main(int argc, char** argv) {
     AppState st;
     st.root = args.root ? *args.root : find_root();
     st.seed = args.seed;
+    st.pacer.set_speed(args.speed);
     st.library = scan_library(st.root);
     {
         const fs::path cfg =
@@ -716,7 +791,9 @@ int main(int argc, char** argv) {
     } else if (args.firmware && st.session && !scripted) {
         st.running = true;
     }
-    Uint64 last_ticks = SDL_GetTicks64();
+    Uint64 last_ticks = SDL_GetPerformanceCounter();
+    const Uint64 live_t0 = last_ticks;
+    const std::int64_t live_sim0 = st.session ? st.session->time_us() : 0;
 
     int exit_code = 0;
     bool done = false;
@@ -748,14 +825,46 @@ int main(int argc, char** argv) {
 
         if (ImGui::IsKeyPressed(ImGuiKey_F12, false)) st.want_screenshot = true;
         if (!io.WantTextInput) {
-            if (ImGui::IsKeyPressed(ImGuiKey_Space, false) && st.session) st.running = !st.running;
+            if (ImGui::IsKeyPressed(ImGuiKey_Space, false) && st.session)
+                set_running(st, !st.running);
             if (ImGui::IsKeyPressed(ImGuiKey_R, false)) make_session(st);
         }
-        // 1x real time (approximate; precise pacing + speed control land in Slice 5).
-        const Uint64 now_ticks = SDL_GetTicks64();
-        const long long elapsed = static_cast<long long>(now_ticks - last_ticks);
+        // Pacing: simulated time = speed x wall time (exact over many frames, see Pacer);
+        // Max runs as many ticks as fit in a fixed wall budget per frame.
+        const Uint64 now_ticks = SDL_GetPerformanceCounter();
+        const double wall_dt = static_cast<double>(now_ticks - last_ticks) /
+                               static_cast<double>(SDL_GetPerformanceFrequency());
         last_ticks = now_ticks;
-        if (st.running && !scripted) advance(st, std::min<long long>(elapsed, 100));
+        if (st.running && !scripted && st.session) {
+            const long long ran = st.pacer.is_max()
+                                      ? advance(st, 0, host::Pacer::max_budget_s())
+                                      : advance(st, st.pacer.ticks_for_frame(wall_dt));
+            st.window_wall += wall_dt;
+            st.window_sim_ms += ran;
+            if (st.window_wall >= 0.5) {
+                st.ratio = static_cast<double>(st.window_sim_ms) / 1000.0 / st.window_wall;
+                st.window_wall = 0.0;
+                st.window_sim_ms = 0;
+            }
+        }
+
+        if (args.live_for_s > 0.0) {
+            const double wall = static_cast<double>(now_ticks - live_t0) /
+                                static_cast<double>(SDL_GetPerformanceFrequency());
+            if (wall >= args.live_for_s) {
+                const double sim =
+                    st.session ? static_cast<double>(st.session->time_us() - live_sim0) * 1e-6
+                               : 0.0;
+                std::printf("live: speed %s wall %.3f s sim %.3f s ratio %.4f frames %d\n",
+                            st.pacer.is_max() ? "max" : std::to_string(st.pacer.speed()).c_str(),
+                            wall, sim, wall > 0.0 ? sim / wall : 0.0, frame);
+                if (!st.sim_error.empty()) std::printf("live: error: %s\n", st.sim_error.c_str());
+                if (st.session)
+                    std::printf("live: firmware %s %s\n", host::to_string(st.session->state()),
+                                st.session->error().c_str());
+                done = true;
+            }
+        }
 
         ui_library(st);
         ui_maze(st);
