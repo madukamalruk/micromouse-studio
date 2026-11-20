@@ -101,3 +101,9 @@ Format: date · decision · why · alternatives considered.
 - **Scripted runs** (`--frames`) are DPI-unaware, so captures are exactly `--size`. Audio and motion are off there.
 - **Compare sign:** `dt(s) = t_B - t_A`. A value > 0 means the live run A is ahead.
 - **Alternatives:** tabs inside one dockspace (layouts collide); a separate console parser (behaviour would drift from the buttons).
+
+## D14 - 2026-11-20 · Interactive window fits the work area; dark native titlebar
+- **Bug:** at 150 % DPI the window was `--size * scale` (1280x800 -> 1920x1200) centred on a 1920x1128 work area, so the titlebar sat above the screen top and Minimize / Maximize / Close were unreachable.
+- **Fix:** interactive runs create the window hidden, then `ui::fit_window` (pure, unit-tested at 100/150/200 % and with oversized `--size`) fits the client area inside `SDL_GetDisplayUsableBounds` minus the native frame (`SDL_GetWindowBordersSize`, fallback 36/8/8/8), centres it, and maximizes when the request did not fit. Minimum size is 960x600 logical, capped to what fits. Scripted / `--hidden` runs keep the exact `--size` at scale 1, so pixel checks and captures are unchanged.
+- **Titlebar:** `platform::apply_dark_titlebar` (new `mmsim_platform_window`, links `dwmapi`; Win32 stays in `sim/platform`, D6) sets `DWMWA_USE_IMMERSIVE_DARK_MODE` (20, fallback 19) and the Windows 11 caption colour `#0E1116`.
+- **1280x720 logical** (150 % laptop work area): the top bar adds narrower tiers (combo with the full title -> combo with the short name -> one mode toggle instead of the Beginner/Engineer pair); sensor rows are tighter so all four fit.

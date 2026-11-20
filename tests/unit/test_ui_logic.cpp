@@ -140,4 +140,49 @@ TEST_SUITE("ui") {
         CHECK(r.history_step(+1).empty());  // past the newest: empty line
         CHECK(r.history_step(+1).empty());
     }
+
+    TEST_CASE("ui: fit_window keeps the titlebar on screen at any DPI") {
+        const FrameBorders fb;  // 36 / 8 / 8 / 8
+        auto on_screen = [&](const WindowPlacement& p, const ScreenRect& u) {
+            CHECK(p.client.x - fb.left >= u.x);
+            CHECK(p.client.y - fb.top >= u.y);
+            CHECK(p.client.x + p.client.w + fb.right <= u.x + u.w);
+            CHECK(p.client.y + p.client.h + fb.bottom <= u.y + u.h);
+        };
+        // 100 %: 1280x800 fits in 1920x1040, centred, not maximized.
+        const ScreenRect fhd{0, 0, 1920, 1040};
+        auto p = fit_window(1280, 800, fhd, fb, 960, 600);
+        CHECK_FALSE(p.maximize);
+        CHECK(p.client.w == 1280);
+        CHECK(p.client.h == 800);
+        on_screen(p, fhd);
+        // 150 % ThinkPad: 1280x800 * 1.5 = 1920x1200 in a 1920x1128 work area -> clamped +
+        // maximize.
+        const ScreenRect tp{0, 0, 1920, 1128};
+        p = fit_window(1920, 1200, tp, fb, 1440, 900);
+        CHECK(p.maximize);
+        CHECK(p.client.w == 1920 - 16);
+        CHECK(p.client.h == 1128 - 44);
+        on_screen(p, tp);
+        CHECK(p.min_h <= p.client.h);  // min size never exceeds what fits
+        // --size 1440x900 at 150 % = 2160x1350: same clamp.
+        p = fit_window(2160, 1350, tp, fb, 1440, 900);
+        CHECK(p.maximize);
+        on_screen(p, tp);
+        // 200 % on a 4K panel with the taskbar on top (work area starts at y = 96).
+        const ScreenRect uhd{0, 96, 3840, 2064};
+        p = fit_window(2560, 1600, uhd, fb, 1920, 1200);
+        CHECK_FALSE(p.maximize);
+        on_screen(p, uhd);
+        // Secondary monitor at a negative origin.
+        const ScreenRect left{-1920, 0, 1920, 1040};
+        p = fit_window(800, 500, left, fb, 960, 600);
+        CHECK(p.client.w == 960);  // raised to the minimum size
+        on_screen(p, left);
+        // Tiny work area: minimum is capped to what fits.
+        const ScreenRect tiny{0, 0, 800, 500};
+        p = fit_window(1280, 800, tiny, fb, 960, 600);
+        CHECK(p.min_w <= p.client.w);
+        on_screen(p, tiny);
+    }
 }

@@ -28,6 +28,7 @@
 #include "sim/app/widgets.hpp"
 #include "sim/core/robot_config.hpp"
 #include "sim/core/version.hpp"
+#include "sim/platform/window_chrome.hpp"
 
 namespace fs = std::filesystem;
 using namespace mmsim;
@@ -468,13 +469,29 @@ void top_bar(AppState& st) {
             hide_brand = true;
         else if (hide_brand && (!engineer || need + brand_w <= avail))
             hide_brand = false;
-        const bool full = engineer && ui::fit_count({need}, avail, 0) == 1;
-        const float combo_w = 200.0f;
-        float group_w = mode_w + help_w + s.ItemSpacing.x +
-                        (engineer ? (full ? tabs_total : combo_w) + s.ItemSpacing.x : 0.0f);
-        ImGui::SameLine(std::max(used, right_edge - group_w + s.WindowPadding.x * 0.0f));
+        // Narrower tiers: combo with the full title -> combo with the short name -> a single
+        // mode toggle instead of the Beginner/Engineer pair.
+        const float fp2 = s.FramePadding.x * 2.0f + ImGui::GetFrameHeight() + 8.0f;
+        const float combo_full = ImGui::CalcTextSize("Telemetry & Compare").x + fp2;
+        const float combo_short = ImGui::CalcTextSize("Telemetry").x + fp2;
+        const float mode_one = ui::button_width("Engineer");
+        const float sp = s.ItemSpacing.x;
+        int tier = 3;
+        if (!engineer)
+            tier = mode_w + help_w + sp <= avail ? 0 : 3;
+        else if (need <= avail)
+            tier = 0;
+        else if (combo_full + sp + mode_w + help_w + sp <= avail)
+            tier = 1;
+        else if (combo_short + sp + mode_w + help_w + sp <= avail)
+            tier = 2;
+        const bool pair = tier < 3;
+        const float combo_w = tier == 1 ? combo_full : combo_short;
+        const float group_w = (pair ? mode_w : mode_one) + help_w + sp +
+                              (engineer ? (tier == 0 ? tabs_total : combo_w) + sp : 0.0f);
+        ImGui::SameLine(std::max(used, right_edge - group_w));
         if (engineer) {
-            if (full) {
+            if (tier == 0) {
                 for (int i = 0; i < ui::kWorkspaceCount; ++i) {
                     if (i) ImGui::SameLine(0, 4.0f);
                     const std::string tip =
@@ -486,21 +503,34 @@ void top_bar(AppState& st) {
                 }
             } else {
                 ImGui::SetNextItemWidth(combo_w);
-                if (ImGui::BeginCombo("##ws", ui::workspace_title(st.workspace))) {
-                    for (int i = 0; i < ui::kWorkspaceCount; ++i)
-                        if (ImGui::Selectable(tabs[static_cast<std::size_t>(i)].c_str(),
-                                              static_cast<int>(st.workspace) == i))
+                const char* preview = tier == 1
+                                          ? ui::workspace_title(st.workspace)
+                                          : tabs[static_cast<std::size_t>(st.workspace)].c_str();
+                if (ImGui::BeginCombo("##ws", preview)) {
+                    for (int i = 0; i < ui::kWorkspaceCount; ++i) {
+                        const std::string item = std::to_string(i + 1) + "  " +
+                                                 ui::workspace_title(static_cast<ui::Workspace>(i));
+                        if (ImGui::Selectable(item.c_str(), static_cast<int>(st.workspace) == i))
                             st.actions.dispatch("ws " + std::to_string(i + 1));
+                    }
                     ImGui::EndCombo();
                 }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Workspace (keys 1-4)");
             }
             ImGui::SameLine();
         }
-        if (ui::pill_toggle("Beginner", !engineer, "Plain language, Cockpit only"))
-            st.actions.dispatch("mode beginner");
-        ImGui::SameLine(0, 4.0f);
-        if (ui::pill_toggle("Engineer", engineer, "All four workspaces and full numbers"))
-            st.actions.dispatch("mode engineer");
+        if (pair) {
+            if (ui::pill_toggle("Beginner", !engineer, "Plain language, Cockpit only"))
+                st.actions.dispatch("mode beginner");
+            ImGui::SameLine(0, 4.0f);
+            if (ui::pill_toggle("Engineer", engineer, "All four workspaces and full numbers"))
+                st.actions.dispatch("mode engineer");
+        } else if (ui::pill_toggle(engineer ? "Engineer" : "Beginner", true,
+                                   engineer
+                                       ? "Engineer mode. Click for Beginner (Cockpit only)"
+                                       : "Beginner mode. Click for Engineer (all workspaces)")) {
+            st.actions.dispatch(engineer ? "mode beginner" : "mode engineer");
+        }
         ImGui::SameLine();
         if (ui::pill_toggle("?", st.help_open, "Keyboard shortcuts and commands (?)"))
             st.actions.trigger("help");
@@ -1025,7 +1055,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     const float scale = unit_scale ? 1.0f : ImGui_ImplSDL2_GetContentScaleForDisplay(0);
-    Uint32 wflags = SDL_WINDOW_RESIZABLE | (args.hidden ? SDL_WINDOW_HIDDEN : 0);
+    // Interactive windows are created hidden, fitted to the display's work area (whole frame,
+    // titlebar included, on screen at any DPI), then shown. Scripted / hidden runs keep the
+    // exact --size so captures and pixel checks stay deterministic.
+    const bool interactive = !unit_scale && !args.hidden;
+    Uint32 wflags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN;
     if (!unit_scale) wflags |= SDL_WINDOW_ALLOW_HIGHDPI;
     SDL_Window* window =
         SDL_CreateWindow("MMSim", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -1035,6 +1069,26 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
         return 1;
     }
+    if (interactive) {
+        const int display = std::max(0, SDL_GetWindowDisplayIndex(window));
+        SDL_Rect usable{};
+        if (SDL_GetDisplayUsableBounds(display, &usable) == 0) {
+            ui::FrameBorders fb;  // Windows 11 fallback when SDL cannot tell yet
+            int t = 0, l = 0, b = 0, r = 0;
+            if (SDL_GetWindowBordersSize(window, &t, &l, &b, &r) == 0 && t > 0) fb = {t, l, b, r};
+            int w = 0, h = 0;
+            SDL_GetWindowSize(window, &w, &h);
+            const auto fit =
+                ui::fit_window(w, h, {usable.x, usable.y, usable.w, usable.h}, fb,
+                               static_cast<int>(960.0f * scale), static_cast<int>(600.0f * scale));
+            SDL_SetWindowMinimumSize(window, fit.min_w, fit.min_h);
+            SDL_SetWindowSize(window, fit.client.w, fit.client.h);
+            SDL_SetWindowPosition(window, fit.client.x, fit.client.y);
+            if (fit.maximize) SDL_MaximizeWindow(window);
+        }
+        platform::apply_dark_titlebar(window, 0x0E1116);  // matches tok::canvas
+    }
+    if (!args.hidden) SDL_ShowWindow(window);
     const Uint32 rflags = args.software ? SDL_RENDERER_SOFTWARE
                                         : (SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, rflags);

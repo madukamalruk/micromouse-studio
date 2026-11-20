@@ -51,6 +51,25 @@ MissionStatus mission_status(const MissionInput& in);
 /// How many of `widths` (left to right) fit in `avail` with `spacing` between items.
 int fit_count(const std::vector<float>& widths, float avail, float spacing);
 
+/// Window placement in physical pixels. `usable` is the display's work area (no taskbar),
+/// `border_*` the native frame around the client area (titlebar = top).
+struct ScreenRect {
+    int x = 0, y = 0, w = 0, h = 0;
+};
+struct FrameBorders {
+    int top = 36, left = 8, bottom = 8, right = 8;  // Windows 11 fallback
+};
+struct WindowPlacement {
+    ScreenRect client;      // client-area rect to set (position = client origin)
+    bool maximize = false;  // the request did not fit: start maximized
+    int min_w = 0, min_h = 0;
+};
+/// Fit a requested client size (already DPI-scaled) inside the usable area so the whole
+/// frame, titlebar included, is on screen; centred; min size `min_w x min_h`, never larger
+/// than what fits.
+WindowPlacement fit_window(int want_w, int want_h, const ScreenRect& usable, const FrameBorders& b,
+                           int min_w, int min_h);
+
 /// "00:12.345" (minutes:seconds.millis); hours are folded into minutes.
 std::string format_sim_time(std::int64_t time_us);
 

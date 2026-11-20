@@ -196,8 +196,9 @@ void panel_sensors(AppState& st) {
         ui::bar(id, f, txt, f > 0.75f ? tok::warn : tok::accent, fh * 0.8f, false,
                 x1 - (x0 + name_w + 12.0f) - val_w - 12.0f);
         ImGui::PopItemWidth();
-        ImGui::SetCursorScreenPos({x0, row.y + fh + ImGui::GetStyle().ItemSpacing.y});
-        ImGui::Dummy({0, 0});
+        // Row pitch = frame height + 4 px, so four sensors fit a 720 px tall window.
+        ImGui::SetCursorScreenPos({x0, row.y});
+        ImGui::Dummy({1.0f, fh + 4.0f - ImGui::GetStyle().ItemSpacing.y});
     }
     if (ss.size() == 0) ui::hint("This robot config has no distance sensors.");
     if (!beginner) {

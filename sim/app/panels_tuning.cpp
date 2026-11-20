@@ -256,7 +256,7 @@ void panel_step(AppState& st) {
     }
     if (!s.t.empty() && ImPlot::BeginPlot("##step", {-1, -1}, ImPlotFlags_NoMenus)) {
         ImPlot::SetupAxes("time (s)", nullptr, ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
-        ImPlot::SetupLegend(ImPlotLocation_SouthEast);
+        ImPlot::SetupLegend(ImPlotLocation_NorthWest);
         ImPlotSpec sp;
         sp.LineColor = theme::v4(tok::accent);
         if (m.ok()) {
@@ -274,8 +274,12 @@ void panel_step(AppState& st) {
             double t10 = m.t10_s, t90 = m.t90_s;
             ImPlot::DragLineX(10, &t10, theme::v4(tok::muted), 1.0f, ImPlotDragToolFlags_NoInputs);
             ImPlot::DragLineX(11, &t90, theme::v4(tok::muted), 1.0f, ImPlotDragToolFlags_NoInputs);
-            ImPlot::TagX(m.t10_s, theme::v4(tok::raised), "10%%");
-            ImPlot::TagX(m.t90_s, theme::v4(tok::raised), "90%%");
+            // Labels inside the plot (axis tags would cover the tick labels).
+            const double span = m.final_value - m.baseline;
+            ImPlot::Annotation(m.t10_s, m.baseline + 0.2 * span, theme::v4(tok::raised),
+                               {-22.0f, 0.0f}, true, "10%%");
+            ImPlot::Annotation(m.t90_s, m.baseline + 0.6 * span, theme::v4(tok::raised),
+                               {22.0f, 0.0f}, true, "90%%");
         }
         ImPlot::EndPlot();
     }

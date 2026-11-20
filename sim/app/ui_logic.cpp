@@ -137,6 +137,21 @@ int fit_count(const std::vector<float>& widths, float avail, float spacing) {
     return n;
 }
 
+WindowPlacement fit_window(int want_w, int want_h, const ScreenRect& usable, const FrameBorders& b,
+                           int min_w, int min_h) {
+    WindowPlacement p;
+    const int max_w = std::max(1, usable.w - b.left - b.right);
+    const int max_h = std::max(1, usable.h - b.top - b.bottom);
+    p.min_w = std::min(min_w, max_w);
+    p.min_h = std::min(min_h, max_h);
+    p.maximize = want_w > max_w || want_h > max_h;
+    p.client.w = std::clamp(want_w, p.min_w, max_w);
+    p.client.h = std::clamp(want_h, p.min_h, max_h);
+    p.client.x = usable.x + b.left + (max_w - p.client.w) / 2;
+    p.client.y = usable.y + b.top + (max_h - p.client.h) / 2;
+    return p;
+}
+
 std::string format_sim_time(std::int64_t time_us) {
     if (time_us < 0) time_us = 0;
     const std::int64_t ms = time_us / 1000;

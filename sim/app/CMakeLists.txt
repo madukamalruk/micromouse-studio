@@ -18,7 +18,7 @@ mmsim_set_warnings(mmsim_uilogic)
 add_library(mmsim_applib STATIC maze_view.cpp robot_view.cpp screenshot.cpp telemetry_view.cpp
     theme.cpp widgets.cpp app_ops.cpp maze_canvas.cpp panels_cockpit.cpp panels_studio.cpp
     panels_analysis.cpp panels_tuning.cpp audio.cpp)
-target_link_libraries(mmsim_applib PUBLIC mmsim_camera mmsim_settings mmsim_uilogic simcore mmsim_host imgui_bundle
+target_link_libraries(mmsim_applib PUBLIC mmsim_camera mmsim_settings mmsim_uilogic simcore mmsim_host mmsim_platform_window imgui_bundle
     PRIVATE stb_headers)
 mmsim_set_warnings(mmsim_applib)
 
