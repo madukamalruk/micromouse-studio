@@ -30,30 +30,39 @@ std::tuple<int, int, int> Annotations::key(int x, int y, core::Dir d) {
     return {x, y, 0};
 }
 
-void Annotations::set_wall(int x, int y, char dir, bool present) {
-    if (!inside(x, y)) return;
-    core::Dir d;
-    switch (dir) {
+bool Annotations::parse_dir(char c, core::Dir& d) {
+    switch (c) {
         case 'n':
         case 'N':
             d = core::Dir::N;
-            break;
+            return true;
         case 'e':
         case 'E':
             d = core::Dir::E;
-            break;
+            return true;
         case 's':
         case 'S':
             d = core::Dir::S;
-            break;
+            return true;
         case 'w':
         case 'W':
             d = core::Dir::W;
-            break;
+            return true;
         default:
-            return;
+            return false;
     }
+}
+
+void Annotations::set_wall(int x, int y, char dir, bool present) {
+    core::Dir d;
+    if (!inside(x, y) || !parse_dir(dir, d)) return;
     walls[key(x, y, d)] = present;
+}
+
+void Annotations::clear_wall(int x, int y, char dir) {
+    core::Dir d;
+    if (!inside(x, y) || !parse_dir(dir, d)) return;
+    walls.erase(key(x, y, d));
 }
 
 void Annotations::clear() {

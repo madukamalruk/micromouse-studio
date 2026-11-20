@@ -27,6 +27,10 @@ class Annotations {
     void set_color(int x, int y, char c);
     void set_text(int x, int y, std::string_view text);   // empty text removes it
     void set_wall(int x, int y, char dir, bool present);  // dir: n/e/s/w (either case)
+    void clear_wall(int x, int y, char dir);              // forget (mms clearWall)
+    void clear_color(int x, int y) { color.erase({x, y}); }
+    void clear_all_color() { color.clear(); }
+    void clear_all_text() { text.clear(); }
     void clear();
 
     /// The firmware's belief about wall (x, y, d); nullopt if it never reported it.
@@ -40,6 +44,7 @@ class Annotations {
   private:
     bool inside(int x, int y) const { return x >= 0 && y >= 0 && x < w_ && y < h_; }
     static std::tuple<int, int, int> key(int x, int y, core::Dir d);
+    static bool parse_dir(char c, core::Dir& d);
     int w_, h_;
 };
 

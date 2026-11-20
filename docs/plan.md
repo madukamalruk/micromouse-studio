@@ -188,16 +188,16 @@ Expected: CSV of a 10 s window has 10 000 rows at 1 kHz; pause advances 0 ticks;
 ---
 
 ## Slice 7 — mms stdio compatibility mode (M)
-- [ ] 7.1 `sim/platform/process`: spawn child with stdin/stdout/stderr pipes (Win32 `CreateProcess`), line reader, kill on reset.
-- [ ] 7.2 `sim/host/MmsBridge`: parser + dispatcher for every command in the reference brief; responses identical to mms (`ack`/`crash`/`true`/`false`/ints/floats; unknown commands ignored).
-- [ ] 7.3 Motion executor: built-in profiled controller (shares math with demo firmware's design but lives in the sim, since the solver isn't firmware) executes `moveForward[Half] N`, 90°/45° turns on the physics; crash ⇒ `crash`.
-- [ ] 7.4 Wall queries: ground truth (default, mms-identical) or sensor-based (option); `wasReset`/`ackReset` + 15-pt penalty; stats & score formula.
-- [ ] 7.5 Tests: command-level unit tests (every command, malformed args, score maths by hand); integration with a tiny test solver exe built in `tests/` and with upstream `mms-cpp` fetched by `tools/fetch_mms_cpp.ps1` (not committed).
+- [x] 7.1 `sim/platform/process`: spawn child with stdin/stdout/stderr pipes (Win32 `CreateProcess`), line reader, kill on reset.
+- [x] 7.2 `sim/host/MmsBridge`: parser + dispatcher for every command in the reference brief; responses identical to mms (`ack`/`crash`/`true`/`false`/ints/floats; unknown commands ignored).
+- [x] 7.3 Motion executor: built-in profiled controller (shares math with demo firmware's design but lives in the sim, since the solver isn't firmware) executes `moveForward[Half] N`, 90°/45° turns on the physics; crash ⇒ `crash`.
+- [x] 7.4 Wall queries: ground truth (default, mms-identical) or sensor-based (option); `wasReset`/`ackReset` + 15-pt penalty; stats & score formula.
+- [x] 7.5 Tests: command-level unit tests (every command, malformed args, score maths by hand); integration with a tiny test solver exe built in `tests/` and with upstream `mms-cpp` fetched by `tools/fetch_mms_cpp.ps1` (not committed).
 
 **Verify**
 ```powershell
 cmake --build --preset dev; ctest --preset dev -L mms --output-on-failure
-build/dev/sim/app/mmsim.exe --maze external/mazefiles/classic/uk1987f.txt --mms-solver external/mms-cpp/build/main.exe
+build/dev/sim/app/mmsim.exe --maze external/mazefiles/classic/uk1987f.txt --mms-solver build/dev/tests/mms_cpp_example.exe
 ```
 Expected: all mms tests pass; manual run shows the solver's colours/text/walls on the physics mouse.
 
@@ -215,6 +215,29 @@ cmake --preset release; cmake --build --preset release; ctest --preset release -
 build/release/sim/cli/mmsim-cli.exe --firmware demo --mazes "external/mazefiles/classic/*.txt" --jobs 8 --json build/classic.json
 ```
 Expected: report for all classic mazes; ≥ 90 % solved crash-free (failures listed); speed factor printed ≥ 50×.
+
+---
+
+## Slice 9 — Championship Studio, multi-run analysis & UI/UX overhaul (L)
+Source: Neomouse V2 Mission Control (`Micromouse-NeomouseV2/tools/dashboard_page.html`, `dashboard_analysis.py`, `thermal_battery_sim.py`, `docs/MANUAL_04_TOOLS_AND_SIMULATION.md`; read-only reference). Only features not already in Slices 1-8; hardware-only bring-up tools (UART/COM, W25Q64, cold resistance) are excluded. All maths is pure C++20 in `sim/core/analysis/` (no ImGui), unit-tested and cross-checked against `dashboard_analysis.py` / `thermal_battery_sim.py` on shared vectors (`tests/fixtures/analysis/*.json`, generated once by a small Python script and committed).
+- [ ] 9.1 **Motor current, battery sag, thermal margin** (`battery_health`, `thermal_battery_sim`, closes the D9 note): expose per-motor current `I = (V - Ke w) / R` from `DriveModel`/`World`; battery model `V_term = 2 V_OCV(SoC) - R_int I_total` (OCV table + capacity + `R_int` in robot JSON), SoC integration, motor duty computed from the sagging voltage; telemetry `sim.i_l`, `sim.i_r`, `sim.v_bat`, `sim.soc`; margin gauge against 6.0 V motor cap / MCU reset; session thermal estimate (driver I^2 R_ds(on), regulator drop, first-order T_j).
+- [ ] 9.2 **Run archive & ghost comparison** (`compare_runs`, `run_series`): finished runs saved under `runs/` (gitignored: run record JSON + compressed telemetry); pick runs A and B: semi-transparent ghost mouse replay, common-distance grid `dt(s)`, `v_A(s)` vs `v_B(s)`, best gain / worst loss over a 100 mm window.
+- [ ] 9.3 **Spatial heatmaps & potential field** (`motion_heatmap`, `potential_field`): per-cell peak speed, peak longitudinal accel, lateral grip use `a_lat / (mu g)`; turn-weighted Dijkstra (1 per cell + 0.5 per 90 deg) cost and departure heading per cell; colour-scaled overlays with a legend.
+- [ ] 9.4 **Cornering envelope** (`cornering`): live traction circle (a_long vs a_lat, measured `v * omega`) with the `mu g` circle; kinematic `a = v^2 / R` gauge, limit speed `sqrt(mu g R)`, verdict WITHIN / NEAR / EXCEEDS.
+- [ ] 9.5 **Trajectory deck & path preview** (`shortest_path`, `compile_trajectory`): optimal route over known walls; overlay blue orthogonal straights + orange 45 deg arcs/diagonals; segment table (type, length, entry/peak/exit speed, time) and totals (mm, s, peak g).
+- [ ] 9.6 **Cell inspector + 2.5D isometric view**: hover/click any cell: wall bitmask (truth and firmware-known), visited, BFS vs turn-weighted cost, minimum wall clearance and peak speed recorded there; isometric view toggle (walls as extruded quads, same camera controls).
+- [ ] 9.7 **Step-response metrics & exports** (`step_metrics`, `build_report`): auto-detect velocity and turn steps in the recorder; rise 10-90 %, settling 2 %, overshoot %, steady-state error; one-click self-contained printable HTML engineering report (run record, plots as inline SVG, metrics, verdicts); MATLAB/tuning CSV bundle compatible with `neomouse_pid_fit.m`.
+- [ ] 9.8 **Live cockpit diagnostics** (`fault_info`, `telemetry_events`, `imu_stats`): zoomed chassis + IR/ToF cone widget, gyro attitude compass, stationary IMU noise analyser (mean, sigma, peak-to-peak over a selectable window), event waterfall (logs, LEDs, crashes, phase changes; click jumps the timeline), fault explainer cards for firmware faults and host errors (hang, crash, load error).
+- [ ] 9.9 **Command console, hotkey sheet, audio cues**: backtick console with history and completion; every command goes through one action dispatcher shared with buttons and shortcuts; `?` modal generated from the same shortcut table; muteable SDL audio cues (goal reached, crash), off in scripted runs.
+- [ ] 9.10 **Championship UI/UX overhaul**: Neomouse palette as ImGui/ImPlot style tokens (`#101310` canvas, `#181c18` cards, `#1e231d` surfaces, `#2b3129` 1 px borders, `#c7f86b` lime accent, `#ef8f81` fault red, `#4ea8ff` ortho blue, `#f59e0b` diagonal orange, `#f1f3ed` text, `#929b8c` muted); bundled open-licence sans font + tabular monospace numerals (no digit jitter at 60 FPS); 4 docked workspace presets — **Live Cockpit**, **Maze Studio**, **Blackbox & Compare**, **Tuning & Reports** — with a slim persistent top status bar (state, sim time, speed, seed, run hash); keyboard actions apply instantly; animated gauges/toasts ease out in 120-200 ms.
+
+**Verify**
+```powershell
+cmake --build --preset dev; ctest --preset dev -L "analysis|battery|compare|ui" --output-on-failure
+build/dev/sim/app/mmsim.exe --maze external/mazefiles/classic/uk1987f.txt --firmware demo_floodfill --run-for 60s --workspace "Maze Studio" --screenshot build/studio.png --exit
+build/dev/sim/app/mmsim.exe --maze external/mazefiles/classic/uk1987f.txt --firmware demo_floodfill --run-for 100s --report build/report.html --exit
+```
+Expected: analysis maths equals the Python reference on every shared vector; stall current = V/R within 1 %; comparing a run with itself gives dt = 0; report opens offline; render pixel checks pass with the new style; screenshots show the heatmap, trajectory deck and cockpit widgets.
 
 ---
 
@@ -239,4 +262,6 @@ Slice 3 done (2026-11-20): HAL v1 + hal_sim, fiber-based lockstep firmware host 
 Slice 4 done (2026-11-20): HAL v2 (distance, encoders, 3-axis gyro/accel), raycast IR/ToF sensors with beam profile, rate, latency and seeded noise, encoder/IMU models, linear tyre slip, GUI beam overlay + sensor panel, `--seed`. Nothing pushed.
 Slice 5 done (2026-11-20): demo_floodfill firmware solves UK 1987 (search 42 s, return 34 s, speed run 21 s, 0 crashes) and 6 other mazes; headless harness; GUI pacing 1x-10x/Max exact to 0.01 %. Nothing pushed.
 Slice 6 done (2026-11-20): bounded telemetry recorder (17 built-in + firmware channels, 60 s at 1 kHz), ImPlot panels with rolling window / paused zoom and CSV export (`--export-csv`), mms cell colours + firmware text + known-vs-true walls, speed-coloured trace, timeline scrub with ghost robot and deterministic rewind, run record + trajectory SHA-256, speed 0.1x-64x/Max, step until next cell, DLL hot-reload, keyboard shortcuts gated by WantCaptureKeyboard (D9). Motor current/battery channels not added. Nothing pushed.
-Next: smooth (arc) turns in demo_floodfill, tuned with the live plots; then Slice 7.
+Slice 9 planned (2026-11-20): Championship Studio, multi-run analysis and UI/UX overhaul (from the Neomouse Mission Control reference).
+Slice 7 done (2026-11-20): mms stdio mode (D10): Win32 child process with pipes, full mms text API with mms-exact stats/score, lockstep bridge (deterministic), physics motion executor with real crashes, truth or sensor wall queries, `--mms-solver` / `--mms-walls`, Run-panel mms status + wasReset button; tiny flood-fill solver reaches the UK 1987 centre (61 s, 0 crashes) and upstream mms-cpp runs unchanged. Nothing pushed.
+Next: Slice 8, then Slice 9; smooth (arc) turns in demo_floodfill after Slices 7-9 / Phase 2.

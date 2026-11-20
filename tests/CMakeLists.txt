@@ -18,15 +18,35 @@ add_executable(mmsim_unit_tests
     unit/test_pacer.cpp
     unit/test_demo_floodfill.cpp
     unit/test_telemetry.cpp
-    unit/test_replay.cpp)
+    unit/test_replay.cpp
+    unit/test_mms.cpp)
 target_link_libraries(mmsim_unit_tests PRIVATE simcore mmsim_host mmsim_camera mmhal doctest::doctest)
 target_compile_definitions(mmsim_unit_tests PRIVATE
     MMSIM_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     MMSIM_FIRMWARE_DIR="${MMSIM_FIRMWARE_DIR}")
 add_dependencies(mmsim_unit_tests firmware_all)
+
+# Slice 7: a tiny mms-protocol solver (echo/hang modes for the process tests + flood fill).
+add_executable(mms_test_solver tools/mms_test_solver.cpp)
+mmsim_set_warnings(mms_test_solver)
+target_link_options(mms_test_solver PRIVATE -static)
+add_dependencies(mmsim_unit_tests mms_test_solver)
+target_compile_definitions(mmsim_unit_tests PRIVATE
+    MMSIM_TEST_SOLVER="$<TARGET_FILE:mms_test_solver>")
+# Upstream mms-cpp example (fetched by tools/fetch_mms_cpp.ps1, gitignored): built unchanged.
+set(MMS_CPP_DIR "${PROJECT_SOURCE_DIR}/external/mms-cpp")
+if(EXISTS "${MMS_CPP_DIR}/Main.cpp" AND EXISTS "${MMS_CPP_DIR}/API.cpp")
+    add_executable(mms_cpp_example "${MMS_CPP_DIR}/Main.cpp" "${MMS_CPP_DIR}/API.cpp")
+    target_link_options(mms_cpp_example PRIVATE -static)
+    add_dependencies(mmsim_unit_tests mms_cpp_example)
+    target_compile_definitions(mmsim_unit_tests PRIVATE
+        MMSIM_MMS_CPP_EXE="$<TARGET_FILE:mms_cpp_example>")
+else()
+    message(STATUS "mms-cpp not fetched: upstream example test skipped (run tools/fetch_mms_cpp.ps1)")
+endif()
 mmsim_set_warnings(mmsim_unit_tests)
 
-add_test(NAME unit.smoke    COMMAND mmsim_unit_tests --test-suite-exclude=maze,app,physics,host,watchdog,sensors,integration,telemetry,replay,controls)
+add_test(NAME unit.smoke    COMMAND mmsim_unit_tests --test-suite-exclude=maze,app,physics,host,watchdog,sensors,integration,telemetry,replay,controls,mms)
 add_test(NAME unit.maze     COMMAND mmsim_unit_tests --test-suite=maze)
 add_test(NAME unit.app      COMMAND mmsim_unit_tests --test-suite=app)
 add_test(NAME unit.physics  COMMAND mmsim_unit_tests --test-suite=physics)
@@ -35,6 +55,7 @@ add_test(NAME unit.host     COMMAND mmsim_unit_tests --test-suite=host)
 add_test(NAME unit.telemetry COMMAND mmsim_unit_tests --test-suite=telemetry)
 add_test(NAME unit.replay   COMMAND mmsim_unit_tests --test-suite=replay)
 add_test(NAME unit.controls COMMAND mmsim_unit_tests --test-suite=controls)
+add_test(NAME unit.mms      COMMAND mmsim_unit_tests --test-suite=mms)
 add_test(NAME integration.demo_floodfill COMMAND mmsim_unit_tests --test-suite=integration)
 # Own process: a hung firmware leaves a detached spinning thread until exit.
 add_test(NAME unit.watchdog COMMAND mmsim_unit_tests --test-suite=watchdog)
@@ -47,6 +68,7 @@ set_tests_properties(unit.host     PROPERTIES LABELS "unit;host")
 set_tests_properties(unit.telemetry PROPERTIES LABELS "unit;telemetry")
 set_tests_properties(unit.replay   PROPERTIES LABELS "unit;replay" TIMEOUT 300)
 set_tests_properties(unit.controls PROPERTIES LABELS "unit;controls" TIMEOUT 300)
+set_tests_properties(unit.mms      PROPERTIES LABELS "unit;mms" TIMEOUT 600)
 set_tests_properties(integration.demo_floodfill PROPERTIES LABELS "integration" TIMEOUT 900)
 set_tests_properties(unit.watchdog PROPERTIES LABELS "unit;host" TIMEOUT 30)
 
@@ -79,7 +101,7 @@ set_tests_properties(app.rejects_bad_maze PROPERTIES WILL_FAIL TRUE LABELS "app;
     ENVIRONMENT_MODIFICATION "${MMSIM_TEST_ENV}")
 
 set_tests_properties(unit.smoke unit.maze unit.app unit.physics unit.sensors unit.host unit.watchdog
-    unit.telemetry unit.replay unit.controls
+    unit.telemetry unit.replay unit.controls unit.mms
     integration.demo_floodfill
     PROPERTIES ENVIRONMENT_MODIFICATION "${MMSIM_TEST_ENV}")
 

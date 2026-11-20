@@ -46,6 +46,8 @@ struct Args {
     std::optional<std::string> firmware;  // NAME (from the firmware dir) or path to a .dll
     std::optional<fs::path> config;
     std::optional<fs::path> export_csv;  // telemetry CSV after --run-for
+    std::optional<fs::path> mms_solver;  // Slice 7: mms-protocol solver exe (stdin/stdout)
+    bool mms_sensor_walls = false;       // --mms-walls sensors
     long long run_for_ms = -1;           // simulated time to run before the scripted frames
     std::uint64_t seed = 1;              // noise seed (same seed + same firmware = same run)
     double speed = 1.0;                  // pacing: 1, 2, 5, 10 or 0 = max
@@ -64,6 +66,8 @@ void print_usage() {
         "  --maze FILE          load a maze (.txt map, .num, .maz)\n"
         "  --root DIR           data root containing mazes/ (default: auto-detect)\n"
         "  --firmware NAME|DLL  firmware to run (NAME = build/<preset>/firmware_bin/NAME.dll)\n"
+        "  --mms-solver EXE     run an mms-protocol solver (stdin/stdout) instead of firmware\n"
+        "  --mms-walls truth|sensors  mms wall queries from the maze (default) or the sensors\n"
         "  --config FILE        robot config JSON (default config/robots/generic_classic.json)\n"
         "  --run-for T          simulate T (e.g. 3s, 250ms) as fast as possible, then render\n"
         "  --seed N             noise seed (default 1): same seed + firmware = same run\n"
@@ -105,6 +109,17 @@ std::optional<Args> parse_args(int argc, char** argv) {
                 a.firmware = v;
             else
                 return std::nullopt;
+        } else if (s == "--mms-solver") {
+            if (auto v = next())
+                a.mms_solver = v;
+            else
+                return std::nullopt;
+        } else if (s == "--mms-walls") {
+            auto v = next();
+            if (!v) return std::nullopt;
+            const std::string w = v;
+            if (w != "truth" && w != "sensors") return std::nullopt;
+            a.mms_sensor_walls = w == "sensors";
         } else if (s == "--export-csv") {
             if (auto v = next())
                 a.export_csv = v;
@@ -242,7 +257,9 @@ struct AppState {
     std::string robot_error;
     fs::path firmware_dir;
     std::vector<fs::path> firmwares;
-    fs::path firmware;  // selected DLL
+    fs::path firmware;    // selected DLL
+    fs::path mms_solver;  // Slice 7: mms solver exe (replaces the firmware when set)
+    host::MmsOptions mms_opt;
     std::shared_ptr<host::Session> session;
     bool running = false;
     bool boot_buttons[2] = {false, false};
@@ -321,7 +338,13 @@ void make_session(AppState& st) {
     st.session = std::make_shared<host::Session>(*st.maze, *st.robot, st.dims, st.seed);
     st.session->set_button(0, st.boot_buttons[0]);
     st.session->set_button(1, st.boot_buttons[1]);
-    if (!st.firmware.empty() && !st.session->load(st.firmware)) st.sim_error = st.session->error();
+    if (!st.mms_solver.empty()) {
+        // The GUI steps on a guarded worker (2 s hang detection): keep solver waits short.
+        st.session->set_mms_think_timeout(std::chrono::milliseconds(500));
+        if (!st.session->load_mms(st.mms_solver, st.mms_opt)) st.sim_error = st.session->error();
+    } else if (!st.firmware.empty() && !st.session->load(st.firmware)) {
+        st.sim_error = st.session->error();
+    }
     st.trace.add(st.session->world().drive().pose, 0.0);
     st.tv.scrub = false;
     st.tv.follow = true;
@@ -650,6 +673,33 @@ void ui_run(AppState& st) {
     ImGui::SameLine();
     ImGui::Checkbox("Button 1", &st.boot_buttons[1]);
 
+    if (!st.mms_solver.empty() && st.session && st.session->mms()) {
+        host::Session& ss = *st.session;
+        const host::MmsBridge& b = *ss.mms();
+        ImGui::SeparatorText("mms solver");
+        ImGui::TextUnformatted(st.mms_solver.filename().string().c_str());
+        if (ss.mms_running())
+            ImGui::TextColored({0.55f, 0.9f, 0.45f, 1.0f}, "running");
+        else if (auto c = ss.mms_exit_code())
+            ImGui::Text("exited, code %d", *c);
+        else
+            ImGui::TextColored({1.0f, 0.45f, 0.4f, 1.0f}, "not running");
+        ImGui::SameLine();
+        ImGui::Text(" walls: %s",
+                    st.mms_opt.walls == host::MmsWallSource::Sensors ? "sensors" : "truth");
+        const host::SemiPose p = b.pose();
+        ImGui::Text("cell (%d, %d) dir %d  moves %d  crashes %d  invalid %d", p.x / 2, p.y / 2,
+                    p.dir, b.moves(), b.crash_count(), b.invalid_count());
+        const host::MmsStats& sts = b.stats();
+        ImGui::Text("score %s  best run: eff %s, %s turns", sts.get("score").c_str(),
+                    sts.get("best-run-effective-distance").c_str(),
+                    sts.get("best-run-turns").c_str());
+        ImGui::Text("total: %s half-steps, %s turns", sts.get("total-distance").c_str(),
+                    sts.get("total-turns").c_str());
+        if (ImGui::Button("Reset (mms wasReset)")) ss.mms_press_reset();
+        if (!b.history().empty()) ImGui::TextDisabled("last: %s", b.history().back().c_str());
+    }
+
     ImGui::SeparatorText("Control");
     const bool have = st.session && st.session->state() != host::FwState::LoadError;
     ImGui::BeginDisabled(!have);
@@ -926,6 +976,10 @@ int main(int argc, char** argv) {
     }
     st.firmware_dir = find_firmware_dir(st.root);
     st.firmwares = scan_firmware(st.firmware_dir);
+    if (args.mms_solver) {
+        st.mms_solver = fs::absolute(*args.mms_solver);
+        if (args.mms_sensor_walls) st.mms_opt.walls = host::MmsWallSource::Sensors;
+    }
     if (args.firmware) {
         fs::path f = *args.firmware;
         if (f.extension() != ".dll") f = st.firmware_dir / (*args.firmware + ".dll");
@@ -939,7 +993,7 @@ int main(int argc, char** argv) {
             if (args.exit_after) return 1;
         }
     }
-    if (args.firmware && !st.sim_error.empty()) {
+    if ((args.firmware || args.mms_solver) && !st.sim_error.empty()) {
         std::fprintf(stderr, "error: %s\n", st.sim_error.c_str());
         if (args.exit_after) return 1;
     }
@@ -951,7 +1005,9 @@ int main(int argc, char** argv) {
             std::printf(
                 "run: %s state=%s t=%.3f s pose=(%.4f, %.4f, %.1f deg) crashes=%zu enc=(%ld, "
                 "%ld)\n",
-                st.firmware.stem().string().c_str(), host::to_string(st.session->state()),
+                st.mms_solver.empty() ? st.firmware.stem().string().c_str()
+                                      : st.mms_solver.filename().string().c_str(),
+                host::to_string(st.session->state()),
                 static_cast<double>(st.session->time_us()) * 1e-6, p.x, p.y,
                 p.theta * 180.0 / 3.14159265358979, w.crashes().size(),
                 static_cast<long>(w.encoder_count(0)), static_cast<long>(w.encoder_count(1)));
@@ -963,6 +1019,13 @@ int main(int argc, char** argv) {
             for (const auto& l : st.session->logs())
                 std::printf("  log %.3f  %s\n", static_cast<double>(l.time_us) * 1e-6,
                             l.text.c_str());
+            if (const host::MmsBridge* b = st.session->mms())
+                std::printf(
+                    "mms: running=%d exit=%d cell=(%d, %d) moves=%d crashes=%d invalid=%d "
+                    "score=%s\n",
+                    st.session->mms_running() ? 1 : 0, st.session->mms_exit_code().value_or(-1),
+                    b->pose().x / 2, b->pose().y / 2, b->moves(), b->crash_count(),
+                    b->invalid_count(), b->stats().get("score").c_str());
             std::printf("record: maze=%016llx config=%s firmware=%s seed=%llu\n",
                         static_cast<unsigned long long>(w.maze().hash()), st.config_hash.c_str(),
                         st.session->firmware_hash().c_str(),
@@ -987,7 +1050,7 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "error: %s\n", st.sim_error.c_str());
             if (args.exit_after) return 1;
         }
-    } else if (args.firmware && st.session && !scripted) {
+    } else if ((args.firmware || args.mms_solver) && st.session && !scripted) {
         st.running = true;
     }
     Uint64 last_ticks = SDL_GetPerformanceCounter();

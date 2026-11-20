@@ -19,7 +19,12 @@
 #include "sim/core/world.hpp"
 #include "sim/host/annotations.hpp"
 #include "sim/host/firmware_host.hpp"
+#include "sim/host/mms_bridge.hpp"
 #include "sim/host/telemetry.hpp"
+
+namespace mmsim::platform {
+class ChildProcess;
+}
 
 namespace mmsim::host {
 
@@ -47,6 +52,19 @@ class Session final : public HalBackend {
     Session& operator=(const Session&) = delete;
 
     bool load(const std::filesystem::path& dll);
+    /// mms mode (Slice 7): runs `exe` as a child process speaking the mms text API on
+    /// stdin/stdout instead of a firmware DLL. Lockstep: while the bridge is idle each tick
+    /// waits (up to the think timeout) for the solver's next command, so solver thinking time
+    /// costs no simulated time and runs are deterministic.
+    bool load_mms(const std::filesystem::path& exe, MmsOptions opt = {});
+    bool mms_mode() const { return mms_ != nullptr; }
+    bool mms_running() const;
+    std::optional<int> mms_exit_code() const;
+    MmsBridge* mms() { return mms_.get(); }
+    const MmsBridge* mms() const { return mms_.get(); }
+    /// The mms "Reset" button (the solver sees wasReset = true).
+    void mms_press_reset();
+    void set_mms_think_timeout(std::chrono::milliseconds t) { think_timeout_ = t; }
     /// World back to the start pose + firmware unloaded and reloaded (fresh globals).
     void reset();
     void unload();
@@ -62,8 +80,8 @@ class Session final : public HalBackend {
     void rewind_to(std::int64_t t_us);
 
     FwState state() const { return host_.state(); }
-    const std::string& error() const { return host_.error(); }
-    const std::filesystem::path& firmware_path() const { return host_.path(); }
+    const std::string& error() const { return mms_ ? mms_error_ : host_.error(); }
+    const std::filesystem::path& firmware_path() const { return mms_ ? mms_path_ : host_.path(); }
     std::int64_t time_us() const { return world_.time_us(); }
 
     core::World& world() { return world_; }
@@ -106,6 +124,11 @@ class Session final : public HalBackend {
 
     void clear_outputs();
     void sample();
+    bool start_mms();
+    void stop_mms();
+    void mms_tick();
+    void mms_flush();
+    void mms_drain_stderr();
 
     enum Builtin {
         kV,
@@ -136,6 +159,15 @@ class Session final : public HalBackend {
     Annotations ann_;
     core::Sha256 traj_;
     std::string fw_hash_;
+    // mms mode
+    std::unique_ptr<platform::ChildProcess> proc_;
+    std::unique_ptr<MmsBridge> mms_;
+    MmsOptions mms_opt_;
+    std::filesystem::path mms_path_;
+    std::string mms_error_;
+    std::chrono::milliseconds think_timeout_{2000};
+    bool mms_stalled_ = false;  // solver missed a think timeout: stop blocking until it speaks
+    bool mms_exit_logged_ = false;
 };
 
 enum class GuardResult { Completed, Hung };

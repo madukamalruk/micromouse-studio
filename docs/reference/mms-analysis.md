@@ -29,7 +29,7 @@ Qt 5/6 + OpenGL desktop app (~4.8 kLOC C++11, `src/`). The user configures a **b
 Colors: `k` black, `b` blue, `a` gray, `c` cyan, `g` green, `o` orange, `r` red, `w` white, `y` yellow, `B` dark blue, `C` dark cyan, `A` dark gray, `G` dark green, `R` dark red, `Y` dark yellow. Invalid commands are silently ignored.
 
 Stats: `total-distance`, `total-turns`, `best-run-distance`, `best-run-turns`, `current-run-distance`, `current-run-turns`, `total-effective-distance`, `best-run-effective-distance`, `current-run-effective-distance`, `score`.
-Effective distance: in `moveForward(N)`, cells beyond the 2nd count 0.5. `ackReset` adds a 15-point penalty to the next run.
+Effective distance (checked in the mms source for Slice 7): per move of n half-steps, `n > 2 ? n/2 + 1 : n` (so `moveForward 1` = 2, `moveForward 3` = 4); distance stats are in half-steps and count the requested amount even if the move crashes. `ackReset` adds a 15-point penalty to the next run.
 `score = best_run_turns + best_run_eff_dist + 0.1 × (total_turns + total_eff_dist)`; 2000 if goal never reached.
 
 ## 3. Maze formats

@@ -7,6 +7,8 @@
 #include <limits>
 #include <utility>
 
+#include "sim/platform/process.hpp"
+
 namespace mmsim::host {
 
 Session::Session(core::Maze maze, core::RobotConfig cfg, core::MazeDims dims, std::uint64_t seed)
@@ -17,6 +19,7 @@ Session::Session(core::Maze maze, core::RobotConfig cfg, core::MazeDims dims, st
 Session::~Session() = default;
 
 bool Session::load(const std::filesystem::path& dll) {
+    stop_mms();
     world_.reset();
     clear_outputs();
     fw_hash_.clear();
@@ -31,10 +34,15 @@ bool Session::load(const std::filesystem::path& dll) {
 void Session::reset() {
     world_.reset();
     clear_outputs();
+    if (mms_) {
+        start_mms();  // fresh solver process, same maze
+        return;
+    }
     host_.reload();
 }
 
 void Session::unload() {
+    stop_mms();
     host_.unload();
     world_.reset();
     clear_outputs();
@@ -56,9 +64,112 @@ void Session::set_button(int btn, bool pressed) {
 }
 
 void Session::step_tick() {
+    if (mms_) {
+        mms_tick();
+        return;
+    }
     if (host_.state() == FwState::Ready) host_.start(world_.time_us());
     world_.step_tick();
     host_.tick(world_.time_us());
+    sample();
+}
+
+// --- mms mode -------------------------------------------------------------------------
+
+bool Session::load_mms(const std::filesystem::path& exe, MmsOptions opt) {
+    host_.unload();
+    world_.reset();
+    clear_outputs();
+    mms_opt_ = opt;
+    mms_path_ = exe;
+    fw_hash_.clear();
+    std::ifstream in(exe, std::ios::binary);
+    if (in) {
+        const std::string bytes((std::istreambuf_iterator<char>(in)), {});
+        fw_hash_ = core::sha256_hex(bytes);
+    }
+    return start_mms();
+}
+
+bool Session::start_mms() {
+    if (proc_) proc_->kill();
+    proc_ = std::make_unique<platform::ChildProcess>();
+    mms_ = std::make_unique<MmsBridge>(world_, ann_, mms_opt_);
+    mms_stalled_ = false;
+    mms_exit_logged_ = false;
+    mms_error_.clear();
+    if (!proc_->start(mms_path_, {}, {}, mms_error_)) {
+        log(("[mms] " + mms_error_).c_str());
+        return false;
+    }
+    log(("[mms] started " + mms_path_.filename().string()).c_str());
+    return true;
+}
+
+void Session::stop_mms() {
+    if (proc_) proc_->kill();
+    proc_.reset();
+    mms_.reset();
+    mms_error_.clear();
+}
+
+bool Session::mms_running() const {
+    return proc_ && proc_->running();
+}
+
+std::optional<int> Session::mms_exit_code() const {
+    return proc_ ? proc_->exit_code() : std::nullopt;
+}
+
+void Session::mms_press_reset() {
+    if (mms_) mms_->press_reset();
+}
+
+void Session::mms_flush() {
+    for (const std::string& r : mms_->take_responses())
+        if (proc_) proc_->write(r + "\n");
+}
+
+void Session::mms_drain_stderr() {
+    if (!proc_) return;
+    for (const std::string& l : proc_->take_stderr_lines()) log(("[solver] " + l).c_str());
+}
+
+void Session::mms_tick() {
+    // Everything the solver already sent, without waiting.
+    while (proc_) {
+        auto l = proc_->read_line(std::chrono::milliseconds(0));
+        if (!l) break;
+        mms_stalled_ = false;
+        mms_->feed_line(*l);
+    }
+    mms_->process();
+    mms_flush();
+    // Lockstep: an idle mouse waits for the solver's next command (no sim time passes).
+    while (proc_ && mms_->idle() && !proc_->eof() && !mms_stalled_) {
+        auto l = proc_->read_line(think_timeout_);
+        if (!l) {
+            if (!proc_->eof()) {
+                mms_stalled_ = true;
+                log("[mms] solver silent for the think timeout: simulation continues");
+            }
+            break;
+        }
+        mms_->feed_line(*l);
+        mms_->process();
+        mms_flush();
+    }
+    if (proc_ && proc_->eof() && !mms_exit_logged_) {
+        proc_->wait(std::chrono::milliseconds(2000));
+        mms_drain_stderr();
+        const auto code = proc_->exit_code();
+        log(("[mms] solver exited, code " + (code ? std::to_string(*code) : std::string("?")))
+                .c_str());
+        mms_exit_logged_ = true;
+    }
+    mms_drain_stderr();
+    mms_->tick();
+    mms_flush();
     sample();
 }
 
