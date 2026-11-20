@@ -208,7 +208,9 @@ std::string make_run_id(const std::string& ts, const std::string& maze, const st
     for (const char ch : maze)
         m += (std::isalnum(static_cast<unsigned char>(ch)) || ch == '-') ? ch : '_';
     if (m.size() > 40) m.resize(40);
-    return ts + "_" + (m.empty() ? "maze" : m) + "_" +
+    std::string t;  // folder-safe on every OS: "2026-11-20 12:00:00" -> "2026-11-20-12-00-00"
+    for (const char ch : ts) t += std::isalnum(static_cast<unsigned char>(ch)) ? ch : '-';
+    return t + "_" + (m.empty() ? "maze" : m) + "_" +
            hash.substr(0, std::min<std::size_t>(8, hash.size()));
 }
 

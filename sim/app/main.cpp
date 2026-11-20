@@ -1,9 +1,11 @@
-// MMSim GUI — maze browser, 2-D renderer, firmware runner (SIL, lockstep).
+// MMSim GUI: real-time SIL micromouse simulator. Slice 9.10 UI: slim top bar + four
+// workspaces (Cockpit, Maze Studio, Telemetry & Compare, Tuning & Reports), one action table
+// behind shortcuts, console and help (DESIGN.md).
 #include <SDL.h>
 #include <imgui.h>
 #include <imgui_impl_sdl2.h>
 #include <imgui_impl_sdlrenderer2.h>
-#include <imgui_internal.h>  // DockBuilder
+#include <imgui_internal.h>  // DockBuilder, BeginViewportSideBar
 #include <implot.h>
 
 #include <algorithm>
@@ -13,29 +15,23 @@
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
-#include "sim/app/camera.hpp"
-#include "sim/app/maze_view.hpp"
-#include "sim/app/robot_view.hpp"
+#include "sim/app/app_state.hpp"
+#include "sim/app/audio.hpp"
+#include "sim/app/panels.hpp"
 #include "sim/app/screenshot.hpp"
 #include "sim/app/settings.hpp"
-#include "sim/app/telemetry_view.hpp"
-#include "sim/core/maze_io.hpp"
-#include "sim/core/maze_validate.hpp"
+#include "sim/app/theme.hpp"
+#include "sim/app/widgets.hpp"
 #include "sim/core/robot_config.hpp"
-#include "sim/core/sha256.hpp"
 #include "sim/core/version.hpp"
-#include "sim/host/pacer.hpp"
-#include "sim/host/session.hpp"
 
 namespace fs = std::filesystem;
 using namespace mmsim;
+using namespace mmsim::app;
 
 namespace {
 
@@ -47,25 +43,29 @@ struct Args {
     std::optional<std::string> firmware;  // NAME (from the firmware dir) or path to a .dll
     std::optional<fs::path> config;
     std::optional<fs::path> export_csv;  // telemetry CSV after --run-for
-    std::optional<fs::path> mms_solver;  // Slice 7: mms-protocol solver exe (stdin/stdout)
-    bool mms_sensor_walls = false;       // --mms-walls sensors
-    long long run_for_ms = -1;           // simulated time to run before the scripted frames
-    std::uint64_t seed = 1;              // noise seed (same seed + same firmware = same run)
-    double speed = 1.0;                  // pacing: 1, 2, 5, 10 or 0 = max
-    double live_for_s = -1.0;            // run the live (paced) loop this long, report, exit
-    int frames = -1;                     // -1 = run until closed
+    std::optional<fs::path> report;      // HTML report after --run-for
+    std::optional<fs::path> mms_solver;  // mms-protocol solver exe (stdin/stdout)
+    std::optional<std::string> workspace;
+    std::optional<std::string> mode;
+    bool mms_sensor_walls = false;
+    bool save_run = false;
+    long long run_for_ms = -1;
+    std::uint64_t seed = 1;
+    double speed = 1.0;
+    double live_for_s = -1.0;
+    int frames = -1;
     bool exit_after = false;
     bool hidden = false;
     bool software = false;
     bool verify_render = false;
-    bool no_session = false;  // --no-session: ignore and do not write mmsim.json
+    bool no_session = false;
     bool seed_given = false, speed_given = false;
     int width = 1280, height = 800;
 };
 
 void print_usage() {
     std::printf(
-        "mmsim %s — real-time SIL micromouse simulator\n"
+        "mmsim %s - real-time SIL micromouse simulator\n"
         "  --maze FILE          load a maze (.txt map, .num, .maz)\n"
         "  --root DIR           data root containing mazes/ (default: auto-detect)\n"
         "  --firmware NAME|DLL  firmware to run (NAME = build/<preset>/firmware_bin/NAME.dll)\n"
@@ -75,6 +75,10 @@ void print_usage() {
         "  --run-for T          simulate T (e.g. 3s, 250ms) as fast as possible, then render\n"
         "  --seed N             noise seed (default 1): same seed + firmware = same run\n"
         "  --export-csv FILE    after --run-for: write all recorded telemetry as CSV\n"
+        "  --report FILE        after --run-for: write the offline HTML engineering report\n"
+        "  --save-run           after --run-for: archive the run under <root>/runs/\n"
+        "  --workspace NAME     cockpit | studio | telemetry | tuning (keys 1-4)\n"
+        "  --mode M             beginner | engineer\n"
         "  --speed S            pacing: 0.1 .. 64 or max (default 1)\n"
         "  --live-for T         play paced for T wall seconds, print sim/wall time, exit\n"
         "  --screenshot PNG     save a screenshot of the last frame\n"
@@ -91,51 +95,49 @@ void print_usage() {
 std::optional<Args> parse_args(int argc, char** argv) {
     Args a;
     for (int i = 1; i < argc; ++i) {
-        std::string s = argv[i];
+        const std::string s = argv[i];
         auto next = [&]() -> const char* { return (i + 1 < argc) ? argv[++i] : nullptr; };
+        auto path_opt = [&](std::optional<fs::path>& dst) {
+            const char* v = next();
+            if (v) dst = v;
+            return v != nullptr;
+        };
         if (s == "--maze") {
-            if (auto v = next())
-                a.maze = v;
-            else
-                return std::nullopt;
+            if (!path_opt(a.maze)) return std::nullopt;
         } else if (s == "--screenshot") {
-            if (auto v = next())
-                a.screenshot = v;
-            else
-                return std::nullopt;
+            if (!path_opt(a.screenshot)) return std::nullopt;
         } else if (s == "--root") {
-            if (auto v = next())
-                a.root = v;
-            else
-                return std::nullopt;
+            if (!path_opt(a.root)) return std::nullopt;
         } else if (s == "--firmware") {
-            if (auto v = next())
-                a.firmware = v;
-            else
-                return std::nullopt;
+            const char* v = next();
+            if (!v) return std::nullopt;
+            a.firmware = v;
         } else if (s == "--mms-solver") {
-            if (auto v = next())
-                a.mms_solver = v;
-            else
-                return std::nullopt;
+            if (!path_opt(a.mms_solver)) return std::nullopt;
         } else if (s == "--mms-walls") {
-            auto v = next();
+            const char* v = next();
             if (!v) return std::nullopt;
             const std::string w = v;
             if (w != "truth" && w != "sensors") return std::nullopt;
             a.mms_sensor_walls = w == "sensors";
         } else if (s == "--export-csv") {
-            if (auto v = next())
-                a.export_csv = v;
-            else
-                return std::nullopt;
+            if (!path_opt(a.export_csv)) return std::nullopt;
+        } else if (s == "--report") {
+            if (!path_opt(a.report)) return std::nullopt;
+        } else if (s == "--save-run") {
+            a.save_run = true;
+        } else if (s == "--workspace") {
+            const char* v = next();
+            if (!v || !ui::parse_workspace(v)) return std::nullopt;
+            a.workspace = v;
+        } else if (s == "--mode") {
+            const char* v = next();
+            if (!v || !ui::parse_mode(v)) return std::nullopt;
+            a.mode = v;
         } else if (s == "--config") {
-            if (auto v = next())
-                a.config = v;
-            else
-                return std::nullopt;
+            if (!path_opt(a.config)) return std::nullopt;
         } else if (s == "--run-for") {
-            auto v = next();
+            const char* v = next();
             if (!v) return std::nullopt;
             char* end = nullptr;
             const double t = std::strtod(v, &end);
@@ -144,7 +146,7 @@ std::optional<Args> parse_args(int argc, char** argv) {
                 return std::nullopt;
             a.run_for_ms = std::llround(unit == "ms" ? t : t * 1000.0);
         } else if (s == "--seed") {
-            auto v = next();
+            const char* v = next();
             if (!v) return std::nullopt;
             char* end = nullptr;
             const unsigned long long n = std::strtoull(v, &end, 0);
@@ -152,10 +154,9 @@ std::optional<Args> parse_args(int argc, char** argv) {
             a.seed = n;
             a.seed_given = true;
         } else if (s == "--speed") {
-            auto v = next();
+            const char* v = next();
             if (!v) return std::nullopt;
-            const std::string sv = v;
-            if (sv == "max") {
+            if (std::string(v) == "max") {
                 a.speed = 0.0;
             } else {
                 char* end = nullptr;
@@ -165,18 +166,17 @@ std::optional<Args> parse_args(int argc, char** argv) {
         } else if (s == "--no-session") {
             a.no_session = true;
         } else if (s == "--live-for") {
-            auto v = next();
+            const char* v = next();
             if (!v) return std::nullopt;
             char* end = nullptr;
             a.live_for_s = std::strtod(v, &end);
             if (end == v || a.live_for_s <= 0.0) return std::nullopt;
         } else if (s == "--frames") {
-            if (auto v = next())
-                a.frames = std::max(1, std::atoi(v));
-            else
-                return std::nullopt;
+            const char* v = next();
+            if (!v) return std::nullopt;
+            a.frames = std::max(1, std::atoi(v));
         } else if (s == "--size") {
-            auto v = next();
+            const char* v = next();
             if (!v || std::sscanf(v, "%dx%d", &a.width, &a.height) != 2) return std::nullopt;
         } else if (s == "--exit") {
             a.exit_after = true;
@@ -195,718 +195,814 @@ std::optional<Args> parse_args(int argc, char** argv) {
     return a;
 }
 
-fs::path find_root() {
-    std::vector<fs::path> starts;
+fs::path exe_dir() {
+    fs::path p;
     if (char* base = SDL_GetBasePath()) {
-        starts.emplace_back(base);
+        p = base;
         SDL_free(base);
     }
-    starts.push_back(fs::current_path());
-    for (fs::path p : starts) {
-        for (int i = 0; i < 8 && !p.empty(); ++i) {
-            if (fs::is_directory(p / "mazes")) return p;
-            if (p == p.parent_path()) break;
-            p = p.parent_path();
+    return p;
+}
+
+// --- layouts ----------------------------------------------------------------------------------
+const char* dockspace_name(ui::Workspace w) {
+    switch (w) {
+        case ui::Workspace::Cockpit:
+            return "WS_Cockpit";
+        case ui::Workspace::Studio:
+            return "WS_Studio";
+        case ui::Workspace::Telemetry:
+            return "WS_Telemetry";
+        case ui::Workspace::Tuning:
+            return "WS_Tuning";
+    }
+    return "WS_Cockpit";
+}
+
+void build_layout(ui::Workspace w, ImGuiID id, const ImGuiViewport* vp) {
+    ImGui::DockBuilderRemoveNode(id);
+    ImGui::DockBuilderAddNode(id, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodePos(id, vp->WorkPos);
+    ImGui::DockBuilderSetNodeSize(id, vp->WorkSize);
+    ImGuiID c = id;
+    auto split = [](ImGuiID& node, ImGuiDir dir, float ratio) {
+        return ImGui::DockBuilderSplitNode(node, dir, ratio, nullptr, &node);
+    };
+    switch (w) {
+        case ui::Workspace::Cockpit: {
+            ImGuiID right = split(c, ImGuiDir_Right, 0.29f);
+            ImGuiID sensors = split(right, ImGuiDir_Down, 0.50f);
+            ImGuiID bottom = split(sensors, ImGuiDir_Down, 0.45f);  // maze keeps full height
+            ImGui::DockBuilderDockWindow(win::kMazeCockpit, c);
+            ImGui::DockBuilderDockWindow(win::kFaceplate, right);
+            ImGui::DockBuilderDockWindow(win::kSensors, sensors);
+            ImGui::DockBuilderDockWindow(win::kEvents, bottom);
+            break;
+        }
+        case ui::Workspace::Studio: {
+            ImGuiID right = split(c, ImGuiDir_Right, 0.38f);
+            ImGuiID deck = split(right, ImGuiDir_Down, 0.70f);
+            ImGuiID insp = split(deck, ImGuiDir_Down, 0.40f);
+            ImGui::DockBuilderDockWindow(win::kMazeStudio, c);
+            ImGui::DockBuilderDockWindow(win::kOverlays, right);
+            ImGui::DockBuilderDockWindow(win::kTrajectory, deck);
+            ImGui::DockBuilderDockWindow(win::kInspector, insp);
+            break;
+        }
+        case ui::Workspace::Telemetry: {
+            ImGuiID right = split(c, ImGuiDir_Right, 0.42f);
+            ImGuiID traction = split(right, ImGuiDir_Down, 0.45f);
+            ImGuiID compare = split(c, ImGuiDir_Down, 0.45f);
+            ImGui::DockBuilderDockWindow(win::kTelemetry, c);
+            ImGui::DockBuilderDockWindow(win::kCompare, compare);
+            ImGui::DockBuilderDockWindow(win::kMazeGhost, right);
+            ImGui::DockBuilderDockWindow(win::kTraction, traction);
+            break;
+        }
+        case ui::Workspace::Tuning: {
+            ImGuiID left = split(c, ImGuiDir_Left, 0.33f);
+            ImGuiID imu = split(left, ImGuiDir_Down, 0.42f);
+            ImGuiID right = split(c, ImGuiDir_Right, 0.48f);
+            ImGuiID step = split(c, ImGuiDir_Down, 0.40f);
+            ImGuiID record = split(right, ImGuiDir_Down, 0.42f);
+            ImGui::DockBuilderDockWindow(win::kMounts, left);
+            ImGui::DockBuilderDockWindow(win::kImu, imu);
+            ImGui::DockBuilderDockWindow(win::kBattery, c);
+            ImGui::DockBuilderDockWindow(win::kStep, step);
+            ImGui::DockBuilderDockWindow(win::kReports, right);
+            ImGui::DockBuilderDockWindow(win::kRecord, record);
+            break;
         }
     }
-    return fs::current_path();
+    ImGui::DockBuilderFinish(id);
 }
 
-// ---------------------------------------------------------------------------------------------
-struct MazeGroup {
-    std::string label;
-    std::vector<fs::path> files;
-};
+void draw_workspace(AppState& st) {
+    switch (st.workspace) {
+        case ui::Workspace::Cockpit:
+            panel_maze(st, win::kMazeCockpit, CanvasKind::Cockpit);
+            panel_faceplate(st);
+            panel_sensors(st);
+            panel_events(st);
+            break;
+        case ui::Workspace::Studio:
+            panel_maze(st, win::kMazeStudio, CanvasKind::Studio);
+            panel_overlays(st);
+            panel_trajectory(st);
+            panel_inspector(st);
+            break;
+        case ui::Workspace::Telemetry:
+            panel_telemetry(st);
+            panel_compare(st);
+            panel_maze(st, win::kMazeGhost, CanvasKind::Ghost);
+            panel_traction(st);
+            break;
+        case ui::Workspace::Tuning:
+            panel_mounts(st);
+            panel_imu(st);
+            panel_battery(st);
+            panel_step(st);
+            panel_reports(st);
+            panel_record(st);
+            break;
+    }
+}
 
-std::vector<MazeGroup> scan_library(const fs::path& root) {
-    std::vector<MazeGroup> groups;
-    const std::pair<const char*, fs::path> dirs[] = {
-        {"Test mazes", root / "mazes/test"},
-        {"Classic 16x16 (mazefiles)", root / "external/mazefiles/classic"},
-        {"Half-size (mazefiles)", root / "external/mazefiles/halfsize"},
-        {"Training (mazefiles)", root / "external/mazefiles/training"},
-    };
-    for (const auto& [label, dir] : dirs) {
-        MazeGroup g{label, {}};
-        std::error_code ec;
-        if (fs::is_directory(dir, ec))
-            for (const auto& e : fs::directory_iterator(dir, ec)) {
-                const auto ext = e.path().extension().string();
-                if (ext == ".txt" || ext == ".num" || ext == ".maz") g.files.push_back(e.path());
+// --- top bar ----------------------------------------------------------------------------------
+std::string ellipsize(const std::string& s, float max_w) {
+    if (ImGui::CalcTextSize(s.c_str()).x <= max_w) return s;
+    std::string t = s;
+    while (!t.empty() && ImGui::CalcTextSize((t + "...").c_str()).x > max_w) t.pop_back();
+    return t + "...";
+}
+
+/// Combo whose width fits its preview (never clips): returns BeginCombo's result.
+bool fitted_combo(const char* id, const std::string& preview, float max_w) {
+    const float arrow = ImGui::GetFrameHeight();
+    const float pad = ImGui::GetStyle().FramePadding.x * 2.0f;
+    const std::string shown = ellipsize(preview, max_w - arrow - pad);
+    ImGui::SetNextItemWidth(ImGui::CalcTextSize(shown.c_str()).x + arrow + pad + 2.0f);
+    return ImGui::BeginCombo(id, shown.c_str(), ImGuiComboFlags_HeightLarge);
+}
+
+void maze_menu(AppState& st) {
+    const std::string name = st.maze ? st.maze_path.stem().string() : std::string("Pick a maze");
+    if (fitted_combo("##maze", "Maze  " + name, 220.0f)) {
+        ImGui::SetNextItemWidth(260.0f);
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        ImGui::InputTextWithHint("##filter", "filter, e.g. uk1987", st.filter, sizeof st.filter);
+        const std::string f = st.filter;
+        for (const auto& g : st.library) {
+            if (g.files.empty()) {
+                if (g.label.rfind("Classic", 0) == 0)
+                    ImGui::TextDisabled("mazefiles not fetched: run tools/fetch_mazes.ps1");
+                continue;
             }
-        std::sort(g.files.begin(), g.files.end());
-        groups.push_back(std::move(g));
-    }
-    return groups;
-}
-
-// ---------------------------------------------------------------------------------------------
-struct AppState {
-    fs::path root;
-    std::vector<MazeGroup> library;
-    char filter[64] = "";
-
-    std::optional<core::Maze> maze;
-    fs::path maze_path;
-    std::string load_error;
-    std::optional<core::FloodMap> flood;
-    core::ValidationReport report;
-    core::MazeDims dims;
-
-    app::Camera cam;
-    app::MazeViewOptions view;
-    bool need_fit = true;
-    bool user_moved_camera = false;
-    bool want_screenshot = false;
-    std::string status;
-
-    // Simulation
-    std::optional<core::RobotConfig> robot;
-    std::string robot_error;
-    fs::path firmware_dir;
-    std::vector<fs::path> firmwares;
-    fs::path firmware;    // selected DLL
-    fs::path mms_solver;  // Slice 7: mms solver exe (replaces the firmware when set)
-    host::MmsOptions mms_opt;
-    std::shared_ptr<host::Session> session;
-    bool running = false;
-    bool boot_buttons[2] = {false, false};
-    std::string sim_error;  // load error, hang, ...
-    app::PathTrace trace;
-    app::RobotViewOptions robot_view;
-    bool log_autoscroll = true;
-    // Pacing (Slice 5): speed multiplier, measured sim/real ratio over a sliding window.
-    host::Pacer pacer;
-    double ratio = 0.0;        // simulated s per wall s while running
-    double window_wall = 0.0;  // accumulators for the ratio window
-    long long window_sim_ms = 0;
-    std::uint64_t seed = 1;
-    // Slice 6: telemetry plots, timeline scrub, run record.
-    app::TelemetryView tv;
-    fs::path config_path;
-    std::string config_hash;
-    std::string telemetry_status;
-};
-
-std::string file_sha256(const fs::path& p) {
-    std::ifstream in(p, std::ios::binary);
-    if (!in) return {};
-    const std::string bytes((std::istreambuf_iterator<char>(in)), {});
-    return core::sha256_hex(bytes);
-}
-
-core::Cell cell_of(const core::Pose& p, const core::MazeDims& d) {
-    return {static_cast<int>(std::floor(p.x / d.cell)), static_cast<int>(std::floor(p.y / d.cell))};
-}
-
-/// Rebuilds the speed-coloured path trace from the recorder (after a rewind).
-void rebuild_trace(AppState& st) {
-    st.trace.clear();
-    if (!st.session) return;
-    const auto& r = st.session->recorder();
-    const auto *x = r.channel("sim.x"), *y = r.channel("sim.y"), *v = r.channel("sim.v");
-    if (!x || !y || !v) return;
-    const std::size_t n = std::min({x->size(), y->size(), v->size()});
-    for (std::size_t i = 0; i < n; i += 5)
-        st.trace.add({x->v[i], y->v[i], 0.0}, static_cast<double>(v->v[i]) * 1e-3);
-}
-
-fs::path find_firmware_dir(const fs::path& root) {
-    std::vector<fs::path> c;
-    if (char* base = SDL_GetBasePath()) {
-        c.push_back(fs::path(base) / "../../firmware_bin");  // build/<preset>/sim/app/mmsim.exe
-        SDL_free(base);
-    }
-    c.push_back(root / "build/dev/firmware_bin");
-    c.push_back(root / "build/release/firmware_bin");
-    for (const auto& p : c) {
-        std::error_code ec;
-        if (fs::is_directory(p, ec)) return fs::weakly_canonical(p, ec);
-    }
-    return {};
-}
-
-std::vector<fs::path> scan_firmware(const fs::path& dir) {
-    std::vector<fs::path> out;
-    std::error_code ec;
-    if (!dir.empty() && fs::is_directory(dir, ec))
-        for (const auto& e : fs::directory_iterator(dir, ec))
-            if (e.path().extension() == ".dll") out.push_back(e.path());
-    std::sort(out.begin(), out.end());
-    return out;
-}
-
-/// (Re)creates the session for the current maze/robot and loads the selected firmware.
-void make_session(AppState& st) {
-    st.session.reset();
-    st.trace.clear();
-    st.running = false;
-    st.sim_error.clear();
-    if (!st.maze || !st.robot) return;
-    st.session = std::make_shared<host::Session>(*st.maze, *st.robot, st.dims, st.seed);
-    st.session->set_button(0, st.boot_buttons[0]);
-    st.session->set_button(1, st.boot_buttons[1]);
-    if (!st.mms_solver.empty()) {
-        // The GUI steps on a guarded worker (2 s hang detection): keep solver waits short.
-        st.session->set_mms_think_timeout(std::chrono::milliseconds(500));
-        if (!st.session->load_mms(st.mms_solver, st.mms_opt)) st.sim_error = st.session->error();
-    } else if (!st.firmware.empty() && !st.session->load(st.firmware)) {
-        st.sim_error = st.session->error();
-    }
-    st.trace.add(st.session->world().drive().pose, 0.0);
-    st.tv.scrub = false;
-    st.tv.follow = true;
-}
-
-/// Advances the simulation by `ms` ticks on a guarded worker; a firmware that stops calling
-/// the HAL (endless loop) is detected and abandoned instead of freezing the GUI.
-// Runs `ms` simulated ms, or (budget_s > 0) as many as fit in budget_s of wall time.
-// Returns the simulated ms actually run.
-// until_cell: stop early when the robot enters another maze cell ("step until next cell").
-long long advance(AppState& st, long long ms, double budget_s = 0.0, bool until_cell = false) {
-    if (!st.session || (ms <= 0 && budget_s <= 0.0)) return 0;
-    struct Sample {
-        core::Pose pose;
-        double v;
-    };
-    auto pts = std::make_shared<std::vector<Sample>>();
-    auto ran = std::make_shared<long long>(0);
-    const core::MazeDims dims = st.dims;
-    const auto r = host::run_guarded(
-        st.session,
-        [ms, budget_s, pts, ran, until_cell, dims](host::Session& s) {
-            const auto t0 = std::chrono::steady_clock::now();
-            const long long limit = budget_s > 0.0 ? 10000000 : ms;
-            const core::Cell c0 = cell_of(s.world().drive().pose, dims);
-            for (long long i = 0; i < limit; ++i) {
-                s.step_tick();
-                ++*ran;
-                const auto& d = s.world().drive();
-                if (s.time_us() % 5000 == 0) pts->push_back({d.pose, d.v});
-                if (until_cell && !(cell_of(d.pose, dims) == c0)) break;
-                if (budget_s > 0.0 && i % 16 == 15 &&
-                    std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() >=
-                        budget_s)
+            ImGui::SeparatorText(g.label.c_str());
+            int shown = 0;
+            for (const auto& p : g.files) {
+                const std::string n = p.filename().string();
+                if (!f.empty() && n.find(f) == std::string::npos) continue;
+                if (f.empty() && g.label != "Test mazes" && ++shown > 40) {
+                    ImGui::TextDisabled("... type to filter %zu mazes", g.files.size());
                     break;
+                }
+                if (ImGui::Selectable(n.c_str(), p == st.maze_path)) {
+                    load_maze(st, p);
+                    ImGui::CloseCurrentPopup();
+                }
             }
-        },
-        std::chrono::milliseconds(2000 + std::max(0ll, ms) +
-                                  static_cast<long long>(budget_s * 1000.0)));
-    if (r == host::GuardResult::Hung) {
-        st.sim_error =
-            "Firmware hung: no HAL call for 2 s (endless loop without "
-            "hal_delay_ms/hal_wait_tick?). "
-            "Session abandoned; press Reset to reload.";
-        st.session.reset();
-        st.running = false;
+        }
+        ImGui::EndCombo();
+    }
+}
+
+void source_menu(AppState& st) {
+    if (fitted_combo("##src", std::string("Firmware  ") + source_label(st), 230.0f)) {
+        if (ImGui::Selectable("No firmware", st.firmware.empty() && st.mms_solver.empty()))
+            select_firmware(st, {});
+        for (const auto& f : st.firmwares)
+            if (ImGui::Selectable(f.stem().string().c_str(),
+                                  f == st.firmware && st.mms_solver.empty()))
+                select_firmware(st, f);
+        if (st.firmwares.empty())
+            ImGui::TextDisabled("No firmware DLLs found (build firmware_all).");
+        if (!st.mms_solver.empty()) {
+            ImGui::Separator();
+            ImGui::TextDisabled("mms solver: %s", st.mms_solver.filename().string().c_str());
+        }
+        ImGui::Separator();
+        if (ImGui::Selectable("Rescan firmware folder (Ctrl+R)")) st.actions.trigger("reload");
+        ImGui::EndCombo();
+    }
+}
+
+void top_bar(AppState& st) {
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12.0f, 8.0f});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, theme::v4(tok::panel));
+    const float h = ImGui::GetFrameHeight() + 16.0f;
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+                                   ImGuiWindowFlags_NoScrollWithMouse |
+                                   ImGuiWindowFlags_NoDecoration;
+    if (ImGui::BeginViewportSideBar("##topbar", vp, ImGuiDir_Up, h, flags)) {
+        const ImGuiStyle& s = ImGui::GetStyle();
+        const float right_edge = ImGui::GetWindowContentRegionMax().x;
+        // Left: brand (dropped first when space is short), maze, source, status.
+        static bool hide_brand = false;
+        ImGui::PushFont(nullptr, theme::kTitleSize);
+        const float brand_w = ImGui::CalcTextSize("MMSim").x + 14.0f;
+        if (!hide_brand) {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(theme::v4(tok::accent), "MMSim");
+            ImGui::SameLine(0, 14.0f);
+        }
+        ImGui::PopFont();
+        maze_menu(st);
+        ImGui::SameLine();
+        source_menu(st);
+        ImGui::SameLine(0, 14.0f);
+        const auto ms = current_status(st);
+        ui::pill(ms.text.c_str(), ms.tone);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ms.detail.c_str());
+
+        // Centre: transport + speed + time.
+        ImGui::SameLine(0, 18.0f);
+        const bool have = st.session && st.session->state() != host::FwState::LoadError;
+        if (ui::action_button("GO", ui::Tone::Good, !have || st.running, 64.0f))
+            st.actions.trigger("go");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Start (Space)");
+        ImGui::SameLine();
+        if (ui::action_button("STOP", ui::Tone::Bad, !st.running, 64.0f))
+            st.actions.trigger("stop");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Pause (Space)");
+        ImGui::SameLine();
+        if (ui::action_button("RESET", ui::Tone::Neutral, !st.maze, 0.0f))
+            st.actions.trigger("reset");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Fresh run, reload firmware (R)");
+        ImGui::SameLine(0, 14.0f);
+        const int sel = ui::speed_preset_index(st.pacer.speed());
+        const auto& presets = ui::speed_presets();
+        for (std::size_t i = 0; i < presets.size(); ++i) {
+            if (i) ImGui::SameLine(0, 4.0f);
+            if (ui::pill_toggle(presets[i].label, sel == static_cast<int>(i),
+                                "Simulation speed (+/-)"))
+                st.actions.dispatch(std::string("speed ") + presets[i].label);
+        }
+        ImGui::SameLine(0, 14.0f);
+        ImGui::AlignTextToFramePadding();
+        ui::mono("%s", ui::format_sim_time(st.session ? st.session->time_us() : 0).c_str());
+        if (st.running && st.ratio > 0.0 && !st.pacer.is_max() &&
+            st.ratio < 0.97 * st.pacer.speed()) {
+            ImGui::SameLine();
+            ImGui::TextColored(theme::v4(tok::warn), "%.1fx", st.ratio);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Behind real time: the simulation is slower than the chosen speed.");
+        }
+        const float used =
+            ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + s.ItemSpacing.x * 2;
+
+        // Right: workspace tabs (or a combo when they do not fit), mode switch, help.
+        const bool engineer = st.mode == ui::Mode::Engineer;
+        std::vector<std::string> tabs;
+        std::vector<float> tab_w;
+        for (int i = 0; i < ui::kWorkspaceCount; ++i) {
+            static const char* kShort[] = {"Cockpit", "Studio", "Telemetry", "Tuning"};
+            tabs.push_back(kShort[i]);
+            tab_w.push_back(ui::button_width(tabs.back().c_str()));
+        }
+        const float mode_w = ui::button_width("Beginner") + ui::button_width("Engineer") + 4.0f;
+        const float help_w = ui::button_width("?");
+        float tabs_total = 0;
+        for (float w : tab_w) tabs_total += w + 4.0f;
+        const float avail = right_edge - used;
+        const float need = tabs_total + mode_w + help_w + s.ItemSpacing.x * 2;
+        // Fallbacks: full tabs -> hide the brand -> workspace combo (decided on last frame's
+        // widths).
+        if (!hide_brand && engineer && need > avail)
+            hide_brand = true;
+        else if (hide_brand && (!engineer || need + brand_w <= avail))
+            hide_brand = false;
+        const bool full = engineer && ui::fit_count({need}, avail, 0) == 1;
+        const float combo_w = 200.0f;
+        float group_w = mode_w + help_w + s.ItemSpacing.x +
+                        (engineer ? (full ? tabs_total : combo_w) + s.ItemSpacing.x : 0.0f);
+        ImGui::SameLine(std::max(used, right_edge - group_w + s.WindowPadding.x * 0.0f));
+        if (engineer) {
+            if (full) {
+                for (int i = 0; i < ui::kWorkspaceCount; ++i) {
+                    if (i) ImGui::SameLine(0, 4.0f);
+                    const std::string tip =
+                        std::string(ui::workspace_title(static_cast<ui::Workspace>(i))) +
+                        "  (key " + std::to_string(i + 1) + ")";
+                    if (ui::pill_toggle(tabs[static_cast<std::size_t>(i)].c_str(),
+                                        static_cast<int>(st.workspace) == i, tip.c_str()))
+                        st.actions.dispatch("ws " + std::to_string(i + 1));
+                }
+            } else {
+                ImGui::SetNextItemWidth(combo_w);
+                if (ImGui::BeginCombo("##ws", ui::workspace_title(st.workspace))) {
+                    for (int i = 0; i < ui::kWorkspaceCount; ++i)
+                        if (ImGui::Selectable(tabs[static_cast<std::size_t>(i)].c_str(),
+                                              static_cast<int>(st.workspace) == i))
+                            st.actions.dispatch("ws " + std::to_string(i + 1));
+                    ImGui::EndCombo();
+                }
+            }
+            ImGui::SameLine();
+        }
+        if (ui::pill_toggle("Beginner", !engineer, "Plain language, Cockpit only"))
+            st.actions.dispatch("mode beginner");
+        ImGui::SameLine(0, 4.0f);
+        if (ui::pill_toggle("Engineer", engineer, "All four workspaces and full numbers"))
+            st.actions.dispatch("mode engineer");
+        ImGui::SameLine();
+        if (ui::pill_toggle("?", st.help_open, "Keyboard shortcuts and commands (?)"))
+            st.actions.trigger("help");
+        // Hairline under the bar.
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
+        dl->AddLine({wp.x, wp.y + ws.y - 1}, {wp.x + ws.x, wp.y + ws.y - 1},
+                    theme::u32(tok::hairline));
+    }
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+}
+
+// --- console, help, toasts --------------------------------------------------------------------
+int console_callback(ImGuiInputTextCallbackData* d) {
+    auto* st = static_cast<AppState*>(d->UserData);
+    if (d->EventFlag == ImGuiInputTextFlags_CallbackCharFilter) {
+        if (d->EventChar == '`') {
+            st->console_open = false;
+            return 1;
+        }
         return 0;
     }
-    for (const auto& p : *pts) st.trace.add(p.pose, p.v);
-    st.trace.add(st.session->world().drive().pose, st.session->world().drive().v);
-    return *ran;
-}
-
-/// Deterministic scrub: replays the run from t = 0 to `t_s` (fresh firmware, same seed).
-void rewind_to(AppState& st, double t_s) {
-    if (!st.session) return;
-    const auto t_us = static_cast<std::int64_t>(std::llround(t_s * 1000.0)) * 1000;
-    const auto r = host::run_guarded(
-        st.session, [t_us](host::Session& s) { s.rewind_to(t_us); },
-        std::chrono::milliseconds(5000 + t_us / 1000));
-    if (r == host::GuardResult::Hung) {
-        st.sim_error = "Firmware hung during rewind; session abandoned. Press Reset.";
-        st.session.reset();
-        return;
-    }
-    rebuild_trace(st);
-}
-
-bool export_csv(const host::TelemetryRecorder& rec, const fs::path& out, double t0, double t1,
-                const std::vector<std::string>& channels, std::size_t& rows) {
-    std::error_code ec;
-    if (out.has_parent_path()) fs::create_directories(out.parent_path(), ec);
-    std::ofstream f(out, std::ios::binary);
-    if (!f) return false;
-    rows = host::write_csv(rec, f, t0, t1, channels);
-    return static_cast<bool>(f);
-}
-
-std::string short_hash(const std::string& h) {
-    return h.size() > 16 ? h.substr(0, 16) : h;
-}
-
-void set_running(AppState& st, bool on) {
-    st.running = on;
-    st.pacer.reset();
-    st.window_wall = 0.0;
-    st.window_sim_ms = 0;
-}
-
-void load_maze(AppState& st, const fs::path& p) {
-    auto r = core::load_maze_file(p);
-    st.maze_path = p;
-    if (!r.ok()) {
-        st.load_error = r.error.to_string();
-        return;
-    }
-    st.load_error.clear();
-    st.maze = std::move(*r.maze);
-    st.flood = core::flood_distances(*st.maze);
-    st.report = core::validate(*st.maze);
-    st.need_fit = true;
-    st.user_moved_camera = false;
-    make_session(st);
-}
-
-const char* dir_name(core::Dir d) {
-    switch (d) {
-        case core::Dir::N:
-            return "N";
-        case core::Dir::E:
-            return "E";
-        case core::Dir::S:
-            return "S";
-        case core::Dir::W:
-            return "W";
-    }
-    return "?";
-}
-
-// with_plots: firmware loaded -> Telemetry beside the maze; else a tab next to Log (the maze
-// keeps its full width).
-void build_default_layout(ImGuiID dockspace, ImVec2 size, bool with_plots) {
-    ImGui::DockBuilderRemoveNode(dockspace);
-    ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
-    ImGui::DockBuilderSetNodeSize(dockspace, size);
-    ImGuiID centre = dockspace;
-    ImGuiID left = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.22f, nullptr, &centre);
-    ImGuiID right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.26f, nullptr, &centre);
-    ImGuiID right_bottom =
-        ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
-    ImGuiID bottom = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.16f, nullptr, &centre);
-    if (with_plots) {
-        const ImGuiID plots =
-            ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.48f, nullptr, &centre);
-        ImGui::DockBuilderDockWindow("Telemetry", plots);
-    } else {
-        ImGui::DockBuilderDockWindow("Telemetry", bottom);
-    }
-    ImGui::DockBuilderDockWindow("Mazes", left);
-    ImGui::DockBuilderDockWindow("Run", right);
-    ImGui::DockBuilderDockWindow("Info", right_bottom);
-    ImGui::DockBuilderDockWindow("Log", bottom);
-    ImGui::DockBuilderDockWindow("Maze", centre);
-    ImGui::DockBuilderFinish(dockspace);
-}
-
-void ui_library(AppState& st) {
-    ImGui::Begin("Mazes");
-    ImGui::SetNextItemWidth(-1);
-    ImGui::InputTextWithHint("##filter", "filter (e.g. uk1987)", st.filter, sizeof st.filter);
-    const std::string f = st.filter;
-    for (const auto& g : st.library) {
-        if (g.files.empty()) {
-            if (g.label.find("mazefiles") != std::string::npos && g.label.rfind("Classic", 0) == 0)
-                ImGui::TextDisabled("mazefiles not fetched: run tools/fetch_mazes.ps1");
-            continue;
-        }
-        if (!ImGui::CollapsingHeader(g.label.c_str(), g.label == "Test mazes" || !f.empty()
-                                                          ? ImGuiTreeNodeFlags_DefaultOpen
-                                                          : 0))
-            continue;
-        for (const auto& p : g.files) {
-            const std::string name = p.filename().string();
-            if (!f.empty() && name.find(f) == std::string::npos) continue;
-            if (ImGui::Selectable(name.c_str(), p == st.maze_path)) load_maze(st, p);
-        }
-    }
-    ImGui::End();
-}
-
-void ui_info(AppState& st) {
-    ImGui::Begin("Info");
-    if (!st.load_error.empty()) {
-        ImGui::TextColored({1.0f, 0.45f, 0.4f, 1.0f}, "Failed to load %s",
-                           st.maze_path.filename().string().c_str());
-        ImGui::TextWrapped("%s", st.load_error.c_str());
-    }
-    if (!st.maze) {
-        ImGui::TextDisabled("No maze loaded. Pick one in the Mazes panel.");
-        ImGui::End();
-        return;
-    }
-    const auto& m = *st.maze;
-    ImGui::SeparatorText("Maze");
-    ImGui::Text("File   %s", st.maze_path.filename().string().c_str());
-    ImGui::Text("Size   %d x %d", m.width(), m.height());
-    ImGui::Text("Start  (%d,%d) facing %s", m.start().x, m.start().y, dir_name(m.start_heading()));
-    ImGui::Text("Goals  %zu cell(s)", m.goals().size());
-    ImGui::Text("Walls  %d segments", m.wall_count());
-    ImGui::Text("Hash   %016llx", static_cast<unsigned long long>(m.hash()));
-    if (st.flood)
-        ImGui::Text("Start->goal  %d cells (BFS)", st.flood->at(m.start().x, m.start().y));
-
-    ImGui::SeparatorText("Validation (official rules)");
-    const auto& r = st.report;
-    auto row = [](bool ok, const char* text) {
-        ImGui::TextColored(ok ? ImVec4{0.45f, 0.85f, 0.5f, 1} : ImVec4{1.0f, 0.55f, 0.35f, 1},
-                           "%s %s", ok ? "[ok]" : "[!!]", text);
-    };
-    row(r.enclosed, "enclosed");
-    row(r.solvable, "goal reachable");
-    row(r.unreachable.empty(), "no unreachable cells");
-    row(r.start_wall_count == 3, "start has 3 walls");
-    row(r.goal_entrances == 1, "single goal entrance");
-    row(r.hollow_centre_post, "hollow goal (no inner walls)");
-    row(r.all_posts_have_walls, "every post has a wall");
-    row(!r.left_wall_follower_solves && !r.right_wall_follower_solves,
-        "not wall-follower solvable");
-    ImGui::Text("%s", r.is_official() ? "Official contest maze." : "Not an official contest maze.");
-
-    ImGui::SeparatorText("View");
-    ImGui::Checkbox("Grid", &st.view.show_grid);
-    ImGui::Checkbox("Distances to goal", &st.view.show_distances);
-    ImGui::Checkbox("Coordinates", &st.view.show_coords);
-    ImGui::Checkbox("Start / goal tint", &st.view.show_start_goal);
-    ImGui::SeparatorText("Overlays");
-    ImGui::Checkbox("True walls", &st.view.show_true_walls);
-    ImGui::SameLine();
-    ImGui::Checkbox("Known walls (firmware)", &st.view.show_known_walls);
-    ImGui::Checkbox("Cell colours", &st.view.show_fw_colors);
-    ImGui::SameLine();
-    ImGui::Checkbox("Cell text", &st.view.show_fw_text);
-    ImGui::Checkbox("Path trace", &st.robot_view.show_trace);
-    ImGui::SameLine();
-    ImGui::Checkbox("Sensor rays", &st.robot_view.show_beams);
-    ImGui::SameLine();
-    ImGui::Checkbox("Crashes", &st.robot_view.show_crashes);
-    ImGui::TextDisabled("Known walls: blue = correct, amber = wrong");
-    ImGui::TextDisabled("Trace colour: blue slow .. red %.2f m/s", st.trace.max_speed());
-    if (ImGui::Button("Fit (F)")) st.need_fit = true;
-    ImGui::SameLine();
-    if (ImGui::Button("Screenshot (F12)")) st.want_screenshot = true;
-    ImGui::TextDisabled("Drag: pan   Wheel: zoom");
-    if (!st.status.empty()) ImGui::TextWrapped("%s", st.status.c_str());
-    ImGui::End();
-}
-
-void ui_maze(AppState& st) {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-    ImGui::Begin("Maze", nullptr,
-                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    ImGui::PopStyleVar();
-    const ImVec2 origin = ImGui::GetCursorScreenPos();
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-    avail.x = std::max(avail.x, 50.0f);
-    avail.y = std::max(avail.y, 50.0f);
-    ImGui::InvisibleButton("canvas", avail,
-                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle |
-                               ImGuiButtonFlags_MouseButtonRight);
-    const bool hovered = ImGui::IsItemHovered();
-    const bool active = ImGui::IsItemActive();
-    ImGuiIO& io = ImGui::GetIO();
-
-    st.cam.set_viewport({origin.x, origin.y}, {avail.x, avail.y});
-    if (st.maze && (st.need_fit || !st.user_moved_camera)) {
-        const auto b = core::maze_bounds(*st.maze, st.dims);
-        const double pad = st.dims.cell * 0.9;  // room for coordinate labels
-        st.cam.fit({b.x0 - pad, b.y0 - pad}, {b.x1 + pad * 0.3, b.y1 + pad * 0.3}, 0.02);
-        st.need_fit = false;
-    }
-    if (active && (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f)) {
-        st.cam.pan_pixels({io.MouseDelta.x, io.MouseDelta.y});
-        st.user_moved_camera = true;
-    }
-    if (hovered && io.MouseWheel != 0.0f) {
-        st.cam.zoom_at({io.MousePos.x, io.MousePos.y}, std::pow(1.15, io.MouseWheel));
-        st.user_moved_camera = true;
-    }
-    if ((hovered || ImGui::IsWindowFocused()) && ImGui::IsKeyPressed(ImGuiKey_F, false)) {
-        st.need_fit = true;
-        st.user_moved_camera = false;
-    }
-
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->PushClipRect(origin, {origin.x + avail.x, origin.y + avail.y}, true);
-    dl->AddRectFilled(origin, {origin.x + avail.x, origin.y + avail.y},
-                      app::colors::kBackground.packed());
-    if (st.maze)
-        app::draw_maze(dl, st.cam, *st.maze, st.flood ? &*st.flood : nullptr, st.dims, st.view,
-                       st.session ? &st.session->annotations() : nullptr);
-    if (st.session) {
-        app::draw_robot(dl, st.cam, st.session->world(), st.trace, st.robot_view);
-        // Timeline scrub: ghost robot at the recorded pose under the cursor.
-        if (st.tv.scrub) {
-            const auto& r = st.session->recorder();
-            const auto *x = r.channel("sim.x"), *y = r.channel("sim.y"),
-                       *th = r.channel("sim.theta");
-            if (x && y && th) {
-                const double t = st.tv.cursor_t;
-                const core::Pose g{x->value_at(t), y->value_at(t),
-                                   th->value_at(t) * 3.14159265358979323846 / 180.0};
-                if (!std::isnan(g.x)) app::draw_ghost(dl, st.cam, st.session->world().config(), g);
+    if (d->EventFlag == ImGuiInputTextFlags_CallbackHistory) {
+        const std::string h = st->actions.history_step(d->EventKey == ImGuiKey_UpArrow ? -1 : +1);
+        d->DeleteChars(0, d->BufTextLen);
+        d->InsertChars(0, h.c_str());
+    } else if (d->EventFlag == ImGuiInputTextFlags_CallbackCompletion) {
+        const std::string line(d->Buf, static_cast<std::size_t>(d->BufTextLen));
+        const std::string done = st->actions.complete_line(line);
+        if (done == line) {
+            const auto m = st->actions.complete(line);
+            if (m.size() > 1) {
+                std::string all;
+                for (const auto& x : m) all += x + "  ";
+                st->console_lines.push_back({all, ui::Tone::Neutral});
             }
         }
+        d->DeleteChars(0, d->BufTextLen);
+        d->InsertChars(0, done.c_str());
     }
-    dl->PopClipRect();
-    ImGui::End();
+    return 0;
 }
 
-void ui_run(AppState& st) {
-    ImGui::Begin("Run");
-    if (!st.robot) {
-        ImGui::TextColored({1.0f, 0.45f, 0.4f, 1.0f}, "Robot config error");
-        ImGui::TextWrapped("%s", st.robot_error.c_str());
-        ImGui::End();
-        return;
-    }
-    ImGui::SeparatorText("Firmware");
-    const std::string current = st.firmware.empty() ? "(none)" : st.firmware.stem().string();
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::BeginCombo("##fw", current.c_str())) {
-        if (ImGui::Selectable("(none)", st.firmware.empty())) {
-            st.firmware.clear();
-            make_session(st);
+void console_window(AppState& st) {
+    if (!st.console_open) return;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float w = std::min(vp->WorkSize.x - 24.0f, 760.0f);
+    ImGui::SetNextWindowPos({vp->WorkPos.x + (vp->WorkSize.x - w) * 0.5f, vp->WorkPos.y + 8.0f});
+    ImGui::SetNextWindowSize({w, 300.0f});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, theme::v4(tok::raised, 0.98f));
+    if (ImGui::Begin("Console  (` to close, Tab completes, Up/Down history)", &st.console_open,
+                     ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
+                         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoResize |
+                         ImGuiWindowFlags_NoMove)) {
+        const float input_h = ImGui::GetFrameHeightWithSpacing();
+        ImGui::BeginChild("##out", {0, -input_h});
+        ImGui::PushFont(theme::fonts().mono, 0.0f);
+        for (const auto& [line, tone] : st.console_lines)
+            ImGui::TextColored(
+                theme::v4(tone == ui::Tone::Neutral ? tok::text : ui::tone_color(tone)), "%s",
+                line.c_str());
+        ImGui::PopFont();
+        if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4) ImGui::SetScrollHereY(1.0f);
+        ImGui::EndChild();
+        static char buf[256] = "";
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        ImGui::PushFont(theme::fonts().mono, 0.0f);
+        const bool enter = ImGui::InputTextWithHint(
+            "##cmd", "type a command, e.g. speed 5, ws studio, help", buf, sizeof buf,
+            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory |
+                ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackCharFilter,
+            console_callback, &st);
+        ImGui::PopFont();
+        if (enter) {
+            const std::string line = buf;
+            buf[0] = '\0';
+            st.console_lines.push_back({"> " + line, ui::Tone::Active});
+            st.actions.remember(line);
+            const std::string r = st.actions.dispatch(line);
+            if (!r.empty())
+                st.console_lines.push_back(
+                    {r, r.rfind("Unknown", 0) == 0 || r.rfind("usage", 0) == 0
+                            ? ui::Tone::Warn
+                            : ui::Tone::Neutral});
+            ImGui::SetKeyboardFocusHere(-1);
         }
-        for (const auto& f : st.firmwares)
-            if (ImGui::Selectable(f.stem().string().c_str(), f == st.firmware)) {
-                st.firmware = f;
-                make_session(st);
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) st.console_open = false;
+    }
+    ImGui::End();
+    ImGui::PopStyleColor();
+    while (st.console_lines.size() > 300) st.console_lines.erase(st.console_lines.begin());
+}
+
+void help_modal(AppState& st) {
+    if (st.help_open && !ImGui::IsPopupOpen("Keyboard & commands"))
+        ImGui::OpenPopup("Keyboard & commands");
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->GetWorkCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+    ImGui::SetNextWindowSize(
+        {std::min(vp->WorkSize.x - 40.0f, 760.0f), std::min(vp->WorkSize.y - 40.0f, 620.0f)},
+        ImGuiCond_Appearing);
+    bool open = true;
+    if (ImGui::BeginPopupModal("Keyboard & commands", &open, ImGuiWindowFlags_NoSavedSettings)) {
+        ui::hint("Every shortcut is also a console command (press ` to open the console).");
+        const char* groups[] = {"Run", "Workspaces", "View", "Analysis", "App"};
+        for (const char* g : groups) {
+            ui::section(g);
+            if (ImGui::BeginTable(g, 3,
+                                  ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
+                ImGui::TableSetupColumn("key", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                ImGui::TableSetupColumn("cmd", ImGuiTableColumnFlags_WidthFixed, 210.0f);
+                ImGui::TableSetupColumn("help");
+                for (const auto& a : st.actions.actions()) {
+                    if (a.group != g) continue;
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    if (!a.keys.empty()) ui::mono_colored(tok::accent, "%s", a.keys.c_str());
+                    ImGui::TableNextColumn();
+                    ui::mono("%s%s%s", a.name.c_str(), a.usage.empty() ? "" : " ", a.usage.c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::TextWrapped("%s", a.help.c_str());
+                }
+                ImGui::EndTable();
             }
-        ImGui::EndCombo();
-    }
-    if (st.firmwares.empty())
-        ImGui::TextDisabled("No firmware DLLs found (build target firmware_all).");
-    ImGui::Checkbox("Button 0 at boot", &st.boot_buttons[0]);
-    ImGui::SameLine();
-    ImGui::Checkbox("Button 1", &st.boot_buttons[1]);
-
-    if (!st.mms_solver.empty() && st.session && st.session->mms()) {
-        host::Session& ss = *st.session;
-        const host::MmsBridge& b = *ss.mms();
-        ImGui::SeparatorText("mms solver");
-        ImGui::TextUnformatted(st.mms_solver.filename().string().c_str());
-        if (ss.mms_running())
-            ImGui::TextColored({0.55f, 0.9f, 0.45f, 1.0f}, "running");
-        else if (auto c = ss.mms_exit_code())
-            ImGui::Text("exited, code %d", *c);
-        else
-            ImGui::TextColored({1.0f, 0.45f, 0.4f, 1.0f}, "not running");
-        ImGui::SameLine();
-        ImGui::Text(" walls: %s",
-                    st.mms_opt.walls == host::MmsWallSource::Sensors ? "sensors" : "truth");
-        const host::SemiPose p = b.pose();
-        ImGui::Text("cell (%d, %d) dir %d  moves %d  crashes %d  invalid %d", p.x / 2, p.y / 2,
-                    p.dir, b.moves(), b.crash_count(), b.invalid_count());
-        const host::MmsStats& sts = b.stats();
-        ImGui::Text("score %s  best run: eff %s, %s turns", sts.get("score").c_str(),
-                    sts.get("best-run-effective-distance").c_str(),
-                    sts.get("best-run-turns").c_str());
-        ImGui::Text("total: %s half-steps, %s turns", sts.get("total-distance").c_str(),
-                    sts.get("total-turns").c_str());
-        if (ImGui::Button("Reset (mms wasReset)")) ss.mms_press_reset();
-        if (!b.history().empty()) ImGui::TextDisabled("last: %s", b.history().back().c_str());
-    }
-
-    ImGui::SeparatorText("Control");
-    const bool have = st.session && st.session->state() != host::FwState::LoadError;
-    ImGui::BeginDisabled(!have);
-    if (ImGui::Button(st.running ? "Pause (Space)" : "Play (Space)")) set_running(st, !st.running);
-    ImGui::SameLine();
-    if (ImGui::Button("Reset (R)")) make_session(st);  // fresh World + DLL reload
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    // Hot reload: rescan firmware_bin (a rebuilt DLL), then fresh World + load from disk.
-    if (ImGui::Button("Reload DLL (Ctrl+R)")) {
-        st.firmwares = scan_firmware(st.firmware_dir);
-        make_session(st);
-    }
-    ImGui::BeginDisabled(!have);
-    ImGui::TextUnformatted("Step");
-    for (int ms : {1, 10, 100}) {
-        ImGui::SameLine();
-        const std::string label = std::to_string(ms) + " ms";
-        if (ImGui::Button(label.c_str())) {
-            set_running(st, false);
-            advance(st, ms);
         }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) open = false;
+        if (!open) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Next cell (N)")) {
-        set_running(st, false);
-        advance(st, 5000, 0.0, true);
+    if (!open) st.help_open = false;
+}
+
+void toasts(AppState& st, float dt) {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    float y = vp->WorkPos.y + vp->WorkSize.y - 16.0f;
+    for (auto it = st.toasts.rbegin(); it != st.toasts.rend(); ++it) {
+        Toast& t = *it;
+        t.age_s += dt;
+        const double life = 3.2;
+        float a = 1.0f;
+        if (theme::motion_enabled()) {
+            if (t.age_s < 0.16) a = static_cast<float>(t.age_s / 0.16);
+            if (t.age_s > life - 0.2) a = static_cast<float>(std::max(0.0, (life - t.age_s) / 0.2));
+        }
+        const ImVec2 ts = ImGui::CalcTextSize(t.text.c_str());
+        const ImVec2 size{ts.x + 40.0f, ts.y + 18.0f};
+        const float slide = (1.0f - a) * 12.0f;
+        const ImVec2 p{vp->WorkPos.x + vp->WorkSize.x - size.x - 16.0f, y - size.y + slide};
+        ImDrawList* dl = ImGui::GetForegroundDrawList();
+        dl->AddRectFilled(p, {p.x + size.x, p.y + size.y}, theme::u32(tok::raised, 0.97f * a),
+                          8.0f);
+        dl->AddRect(p, {p.x + size.x, p.y + size.y}, theme::u32(tok::hairline, a), 8.0f);
+        const Rgba c = t.tone == ui::Tone::Neutral ? tok::muted : ui::tone_color(t.tone);
+        dl->AddCircleFilled({p.x + 16.0f, p.y + size.y * 0.5f}, 4.0f, theme::u32(c, a));
+        dl->AddText({p.x + 28.0f, p.y + 9.0f}, theme::u32(tok::text, a), t.text.c_str());
+        y -= size.y + 8.0f;
     }
-    ImGui::EndDisabled();
-    ImGui::TextUnformatted("Speed");
-    ImGui::SameLine();
-    static constexpr double kSpeeds[] = {0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 64, host::Pacer::kMax};
-    auto speed_label = [](double s) {
-        char b[16];
-        if (s <= 0.0)
-            std::snprintf(b, sizeof b, "Max");
-        else
-            std::snprintf(b, sizeof b, "%gx", s);
+    while (!st.toasts.empty() && st.toasts.front().age_s > 3.2) st.toasts.pop_front();
+}
+
+// --- actions ----------------------------------------------------------------------------------
+void set_workspace(AppState& st, ui::Workspace w) {
+    if (st.mode == ui::Mode::Beginner) w = ui::Workspace::Cockpit;
+    st.workspace = w;
+}
+
+std::string save_screenshot_note(AppState& st) {
+    st.want_screenshot = true;
+    return "Screenshot queued";
+}
+
+void register_actions(AppState& st, Audio& audio) {
+    auto& r = st.actions;
+    AppState* s = &st;
+    r.add({"go", "Space", "Run", "Start the mouse (Space toggles GO / STOP)", "", [s](const auto&) {
+               if (!s->session) return std::string("Load a maze first");
+               set_running(*s, true);
+               return std::string("Running");
+           }});
+    r.add({"stop", "Space", "Run", "Pause the simulation", "", [s](const auto&) {
+               set_running(*s, false);
+               return std::string("Paused");
+           }});
+    r.add({"toggle", "", "Run", "GO if paused, STOP if running", "", [s](const auto&) {
+               if (!s->session) return std::string("Load a maze first");
+               set_running(*s, !s->running);
+               return std::string(s->running ? "Running" : "Paused");
+           }});
+    r.add({"reset", "R", "Run", "Fresh run: new world, firmware reloaded from disk", "",
+           [s](const auto&) {
+               make_session(*s);
+               return std::string("Reset");
+           }});
+    r.add(
+        {"reload", "Ctrl+R", "Run", "Rescan the firmware folder, then reset", "", [s](const auto&) {
+             s->firmwares = scan_firmware(s->firmware_dir);
+             make_session(*s);
+             return std::string("Firmware rescanned (") + std::to_string(s->firmwares.size()) +
+                    " found)";
+         }});
+    r.add({"step", "Right", "Run", "Advance N ms while paused (Shift+Right = 100 ms)", "<ms>",
+           [s](const auto& a) {
+               if (!s->session) return std::string("No session");
+               const long long ms = a.empty() ? 10 : std::max(1ll, std::atoll(a[0].c_str()));
+               set_running(*s, false);
+               advance(*s, ms);
+               return "Stepped " + std::to_string(ms) + " ms";
+           }});
+    r.add(
+        {"next-cell", "N", "Run", "Run until the mouse enters the next cell", "", [s](const auto&) {
+             if (!s->session) return std::string("No session");
+             set_running(*s, false);
+             advance(*s, 5000, 0.0, true);
+             return std::string("Next cell");
+         }});
+    r.add({"speed", "+ / -", "Run", "Simulation speed", "<1|2|5|fast|x>", [s](const auto& a) {
+               if (a.empty()) return std::string("usage: speed <1|2|5|fast|x>");
+               std::string v = a[0];
+               if (!v.empty() && (v.back() == 'x' || v.back() == 'X')) v.pop_back();
+               double sp = 0;
+               if (v == "fast" || v == "Fast" || v == "max") {
+                   sp = host::Pacer::kMax;
+               } else {
+                   char* end = nullptr;
+                   sp = std::strtod(v.c_str(), &end);
+                   if (end == v.c_str() || sp <= 0 || sp > 64)
+                       return std::string("usage: speed <1|2|5|fast|x>");
+               }
+               s->pacer.set_speed(sp);
+               s->window_wall = 0;
+               s->window_sim_ms = 0;
+               return sp <= 0 ? std::string("Speed: fast") : "Speed: " + a[0];
+           }});
+    auto ladder = [s](bool up) {
+        static constexpr double kLadder[] = {0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 64};
+        const double cur = s->pacer.is_max() ? 1000.0 : s->pacer.speed();
+        double next = up ? host::Pacer::kMax : kLadder[0];
+        if (up) {
+            for (double l : kLadder)
+                if (l > cur + 1e-9) {
+                    next = l;
+                    break;
+                }
+        } else {
+            for (double l : kLadder)
+                if (l < cur - 1e-9) next = l;
+        }
+        s->pacer.set_speed(next);
+        char b[32];
+        std::snprintf(b, sizeof b, next <= 0 ? "Speed: fast" : "Speed: %gx", next);
         return std::string(b);
     };
-    ImGui::SetNextItemWidth(90);
-    if (ImGui::BeginCombo("##speed", speed_label(st.pacer.speed()).c_str())) {
-        for (double o : kSpeeds)
-            if (ImGui::Selectable(speed_label(o).c_str(), st.pacer.speed() == o)) {
-                st.pacer.set_speed(o);
-                st.window_wall = 0.0;
-                st.window_sim_ms = 0;
-            }
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(+/- keys)");
-    if (st.running && st.ratio > 0.0) {
-        const bool behind = !st.pacer.is_max() && st.ratio < 0.97 * st.pacer.speed();
-        if (behind)
-            ImGui::TextColored({1.0f, 0.6f, 0.3f, 1.0f}, "%.1fx real time - behind (sim too slow)",
-                               st.ratio);
-        else
-            ImGui::TextDisabled("%.1fx real time", st.ratio);
-    }
+    r.add({"faster", "+", "Run", "Next speed up", "",
+           [ladder](const auto&) { return ladder(true); }});
+    r.add({"slower", "-", "Run", "Next speed down", "",
+           [ladder](const auto&) { return ladder(false); }});
+    r.add({"seed", "", "Run", "Noise seed (restarts the run)", "<n>", [s](const auto& a) {
+               if (a.empty()) return "Seed " + std::to_string(s->seed);
+               s->seed = std::strtoull(a[0].c_str(), nullptr, 0);
+               make_session(*s);
+               return "Seed " + std::to_string(s->seed) + ", run restarted";
+           }});
+    r.add(
+        {"maze", "", "Run", "Load a maze by (part of its) file name", "<name>", [s](const auto& a) {
+             if (a.empty()) return std::string("usage: maze <name>");
+             for (const auto& g : s->library)
+                 for (const auto& p : g.files)
+                     if (p.filename().string().find(a[0]) != std::string::npos) {
+                         load_maze(*s, p);
+                         return "Loaded " + p.filename().string();
+                     }
+             return "No maze matches '" + a[0] + "'";
+         }});
+    r.add({"fw", "", "Run", "Select a firmware DLL by name (none = no firmware)", "<name|none>",
+           [s](const auto& a) {
+               if (a.empty()) return std::string("Firmware: ") + source_label(*s);
+               if (a[0] == "none") {
+                   select_firmware(*s, {});
+                   return std::string("No firmware");
+               }
+               for (const auto& f : s->firmwares)
+                   if (f.stem().string().find(a[0]) != std::string::npos) {
+                       select_firmware(*s, f);
+                       return "Firmware " + f.stem().string();
+                   }
+               return "No firmware matches '" + a[0] + "'";
+           }});
+    r.add({"ws", "1 2 3 4", "Workspaces", "Switch workspace: cockpit, studio, telemetry, tuning",
+           "<name|1-4>", [s](const auto& a) {
+               if (a.empty()) return std::string("usage: ws <cockpit|studio|telemetry|tuning>");
+               const auto w = ui::parse_workspace(a[0]);
+               if (!w) return "Unknown workspace '" + a[0] + "'";
+               if (s->mode == ui::Mode::Beginner && *w != ui::Workspace::Cockpit)
+                   return std::string("Beginner mode shows the Cockpit only (mode engineer)");
+               set_workspace(*s, *w);
+               return std::string(ui::workspace_title(*w));
+           }});
+    r.add({"mode", "", "Workspaces", "Beginner (plain language) or Engineer (everything)",
+           "<beginner|engineer>", [s](const auto& a) {
+               const auto m = a.empty() ? std::optional<ui::Mode>(s->mode == ui::Mode::Beginner
+                                                                      ? ui::Mode::Engineer
+                                                                      : ui::Mode::Beginner)
+                                        : ui::parse_mode(a[0]);
+               if (!m) return std::string("usage: mode <beginner|engineer>");
+               s->mode = *m;
+               if (*m == ui::Mode::Beginner) s->workspace = ui::Workspace::Cockpit;
+               return std::string(*m == ui::Mode::Beginner ? "Beginner mode" : "Engineer mode");
+           }});
+    r.add({"layout", "", "Workspaces", "Restore the default layout of this workspace", "",
+           [s](const auto&) {
+               s->layout_state[static_cast<int>(s->workspace)] = 2;
+               return std::string("Layout restored");
+           }});
+    r.add({"fit", "F", "View", "Fit the maze to its panel", "", [s](const auto&) {
+               const int w = static_cast<int>(s->workspace);
+               s->need_fit[w] = true;
+               s->user_moved[w] = false;
+               return std::string("");
+           }});
+    r.add({"iso", "", "View", "Toggle the 2.5D isometric maze (Studio)", "", [s](const auto&) {
+               s->iso = !s->iso;
+               return std::string(s->iso ? "2.5D view" : "2D view");
+           }});
+    r.add({"heat", "", "View", "Studio heatmap layer", "<off|speed|grip|potential>",
+           [s](const auto& a) {
+               if (a.empty()) return std::string("usage: heat <off|speed|grip|potential>");
+               const std::string v = a[0];
+               if (v == "off")
+                   s->heat = HeatLayer::Off;
+               else if (v == "speed")
+                   s->heat = HeatLayer::PeakSpeed;
+               else if (v == "grip")
+                   s->heat = HeatLayer::GripUse;
+               else if (v == "potential")
+                   s->heat = HeatLayer::Potential;
+               else
+                   return std::string("usage: heat <off|speed|grip|potential>");
+               return "Heatmap: " + v;
+           }});
+    r.add({"route", "", "View", "Toggle the planned-route overlay (Studio)", "", [s](const auto&) {
+               s->show_route = !s->show_route;
+               return std::string(s->show_route ? "Route shown" : "Route hidden");
+           }});
+    r.add({"screenshot", "F12", "View", "Save a PNG of the window under screenshots/", "",
+           [s](const auto&) { return save_screenshot_note(*s); }});
+    r.add({"save-run", "", "Analysis", "Archive the current run under runs/ (for Compare)", "",
+           [s](const auto&) {
+               std::string err;
+               const fs::path p = save_current_run(*s, err);
+               return p.empty() ? "Save failed: " + err : "Saved " + p.filename().string();
+           }});
+    r.add({"compare", "", "Analysis", "Pick archived run B by index (0 = newest)", "<index>",
+           [s](const auto& a) {
+               refresh_archive(*s);
+               const int i = a.empty() ? 0 : std::atoi(a[0].c_str());
+               return load_compare(*s, i) ? "Run B: " + s->run_b_path.filename().string()
+                                          : std::string("No archived run at that index");
+           }});
+    r.add({"report", "", "Analysis", "Save the offline HTML engineering report under reports/",
+           "[file]", [s](const auto& a) {
+               const fs::path out =
+                   a.empty() ? timestamped(s->root / "reports", "report", ".html") : fs::path(a[0]);
+               std::string err;
+               const bool ok = write_report(*s, out, err);
+               s->report_status = ok ? "Saved " + out.string() : err;
+               toast(*s, ok ? "Report saved: " + out.filename().string() : "Report failed: " + err,
+                     ok ? ui::Tone::Good : ui::Tone::Bad);
+               return s->report_status;
+           }});
+    r.add({"matlab", "", "Analysis", "Export the MATLAB CSV bundle (wheel log + telemetry)", "",
+           [s](const auto&) {
+               const fs::path dir = timestamped(s->root / "reports", "matlab", "");
+               std::string err;
+               const bool ok = write_matlab_bundle(*s, dir, err);
+               s->report_status = ok ? "Saved " + dir.string() : err;
+               toast(*s, ok ? "MATLAB bundle: " + dir.filename().string() : "Export failed: " + err,
+                     ok ? ui::Tone::Good : ui::Tone::Bad);
+               return s->report_status;
+           }});
+    r.add({"csv", "", "Analysis", "Export every recorded channel as CSV", "", [s](const auto&) {
+               if (!s->session) return std::string("No session");
+               const fs::path out = timestamped(s->root / "screenshots", "telemetry", ".csv");
+               std::size_t rows = 0;
+               const bool ok = export_csv(s->session->recorder(), out, -1e300, 1e300, {}, rows);
+               s->report_status =
+                   ok ? "Saved " + out.string() + " (" + std::to_string(rows) + " rows)"
+                      : "Could not write " + out.string();
+               toast(*s, ok ? "CSV saved: " + out.filename().string() : s->report_status,
+                     ok ? ui::Tone::Good : ui::Tone::Bad);
+               return s->report_status;
+           }});
+    r.add({"mute", "M", "App", "Mute / unmute the goal and crash sounds", "",
+           [s, &audio](const auto&) {
+               s->muted = !s->muted;
+               audio.set_muted(s->muted);
+               return std::string(
+                   s->muted ? "Sound off"
+                            : (audio.available() ? "Sound on" : "Sound on (no audio device)"));
+           }});
+    r.add({"console", "`", "App", "Open / close this console", "", [s](const auto&) {
+               s->console_open = !s->console_open;
+               return std::string("");
+           }});
+    r.add({"help", "?", "App", "Show keyboard shortcuts and commands", "", [s](const auto&) {
+               s->help_open = !s->help_open;
+               return std::string("");
+           }});
+    r.add({"clear", "", "App", "Clear the console", "", [s](const auto&) {
+               s->console_lines.clear();
+               return std::string("");
+           }});
+}
 
-    if (!st.sim_error.empty())
-        ImGui::TextColored({1.0f, 0.5f, 0.35f, 1.0f}, "%s", st.sim_error.c_str());
-    if (!st.session) {
-        ImGui::TextDisabled(st.maze ? "No session." : "Load a maze first.");
-        ImGui::End();
-        return;
-    }
-    const auto& s = *st.session;
-    const auto& w = s.world();
-    const auto& d = w.drive();
-    ImGui::Text("State   %s", host::to_string(s.state()));
-    if (s.state() == host::FwState::Faulted) ImGui::TextWrapped("        %s", s.error().c_str());
-    ImGui::Text("Time    %.3f s", static_cast<double>(s.time_us()) * 1e-6);
-
-    ImGui::SeparatorText("Robot");
-    ImGui::Text("Pose    x %.4f  y %.4f m  %.1f deg", d.pose.x, d.pose.y,
-                d.pose.theta * 180.0 / 3.14159265358979);
-    ImGui::Text("Speed   %.3f m/s   yaw %.1f deg/s", w.model().forward_speed(d), w.gyro_z_dps());
-    if (w.model().slip_enabled())
-        ImGui::Text("Slip    beta %.2f deg   wheel L %+.3f  R %+.3f m/s", d.beta * 57.2957795,
-                    w.model().slip_velocity(d, 0), w.model().slip_velocity(d, 1));
-    ImGui::Text("Motor   L %.2f V   R %.2f V", w.motor_voltage(0), w.motor_voltage(1));
-    if (w.overvoltage_events() > 0)
-        ImGui::TextColored({1.0f, 0.75f, 0.3f, 1.0f}, "        clamped to %.1f V (%d times)",
-                           w.config().motor.max_voltage, w.overvoltage_events());
-    ImGui::Text("Encoder L %ld  R %ld", static_cast<long>(w.encoder_count(0)),
-                static_cast<long>(w.encoder_count(1)));
-    ImGui::Text("Crashes %zu%s", w.crashes().size(), w.in_contact() ? "  (touching)" : "");
-    if (!w.crashes().empty()) {
-        const auto& e = w.crashes().back();
-        ImGui::TextDisabled("        last at %.3f s, %.2f m/s",
-                            static_cast<double>(e.time_us) * 1e-6, e.impact_speed);
-    }
-    ImGui::Text("LEDs   ");
-    for (int i = 0; i < 4; ++i) {
-        ImGui::SameLine();
-        ImGui::TextColored(s.led(i) ? ImVec4{0.4f, 1.0f, 0.5f, 1} : ImVec4{0.35f, 0.37f, 0.4f, 1},
-                           "%s", s.led(i) ? "(*)" : "( )");
-    }
-
-    ImGui::SeparatorText("Sensors (as firmware sees them)");
-    const auto& imu = w.imu();
-    ImGui::Text("Gyro z  %.2f deg/s  (bias %.3f)", imu.gyro_dps[2], w.imu_model().gyro_bias_dps());
-    ImGui::Text("Accel   x %.2f  y %.2f  z %.2f m/s^2", imu.accel_mps2[0], imu.accel_mps2[1],
-                imu.accel_mps2[2]);
-    const auto& ss = w.sensors();
-    if (ss.size() > 0 &&
-        ImGui::BeginTable("dist", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg)) {
-        ImGui::TableSetupColumn("ch");
-        ImGui::TableSetupColumn("name");
-        ImGui::TableSetupColumn("mm");
-        ImGui::TableSetupColumn("raw");
-        ImGui::TableHeadersRow();
-        for (std::size_t ch = 0; ch < ss.size(); ++ch) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("%zu", ch);
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(ss.config(ch).name.c_str());
-            ImGui::TableNextColumn();
-            const auto mm = ss.distance_mm(ch);
-            if (mm == core::kDistanceNone)
-                ImGui::TextDisabled("--");
-            else
-                ImGui::Text("%u", static_cast<unsigned>(mm));
-            ImGui::TableNextColumn();
-            ImGui::Text("%u%s", static_cast<unsigned>(ss.raw(ch)),
-                        w.emitter(static_cast<int>(ch)) ? "" : " (off)");
+/// Watches logs / crashes for milestones: toast + sound (never in scripted runs).
+void watch_events(AppState& st, Audio& audio) {
+    if (!st.session) return;
+    const auto& logs = st.session->logs();
+    if (st.seen_logs > logs.size()) st.seen_logs = 0;
+    for (std::size_t i = st.seen_logs; i < logs.size(); ++i) {
+        const std::string& l = logs[i].text;
+        if (l.find("speed run done") != std::string::npos) {
+            audio.play(Cue::Done);
+            toast(st, "Speed run complete", ui::Tone::Good);
+        } else if (l.find("goal reached") != std::string::npos) {
+            audio.play(Cue::Goal);
+            toast(st, "Goal reached!", ui::Tone::Good);
+        } else if (ui::classify_log(l) == ui::EventKind::Error) {
+            toast(st, l, ui::Tone::Bad);
         }
-        ImGui::EndTable();
     }
-    ImGui::SeparatorText("Run record (replay)");
-    ImGui::Text("Maze      %016llx", static_cast<unsigned long long>(w.maze().hash()));
-    ImGui::Text("Config    %s", short_hash(st.config_hash).c_str());
-    ImGui::Text("Firmware  %s", short_hash(s.firmware_hash()).c_str());
-    ImGui::Text("Seed      %llu", static_cast<unsigned long long>(w.seed()));
-    ImGui::Text("Trajectory %s", short_hash(s.trajectory_hash()).c_str());
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", s.trajectory_hash().c_str());
-    ImGui::TextDisabled("Same record + same time = same trajectory hash.");
-    ImGui::End();
+    st.seen_logs = logs.size();
+    const std::size_t crashes = st.session->world().crashes().size();
+    if (crashes > st.seen_crashes) {
+        static double last = -10.0;
+        const double now = ImGui::GetTime();
+        if (now - last > 1.5) {
+            audio.play(Cue::Crash);
+            toast(st, "Wall hit", ui::Tone::Warn);
+            last = now;
+        }
+    }
+    st.seen_crashes = crashes;
 }
 
-void ui_log(AppState& st) {
-    ImGui::Begin("Log");
-    ImGui::Checkbox("Auto-scroll", &st.log_autoscroll);
-    ImGui::Separator();
-    ImGui::BeginChild("lines", {0, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-    if (st.session) {
-        for (const auto& l : st.session->logs())
-            ImGui::Text("%9.3f  %s", static_cast<double>(l.time_us) * 1e-6, l.text.c_str());
-        if (st.log_autoscroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4)
-            ImGui::SetScrollHereY(1.0f);
-    }
-    ImGui::EndChild();
-    ImGui::End();
+void handle_shortcuts(AppState& st) {
+    ImGuiIO& io = ImGui::GetIO();
+    if (ImGui::IsKeyPressed(ImGuiKey_F12, false)) st.actions.trigger("screenshot");
+    if (io.WantCaptureKeyboard) return;  // typing in a field: no shortcuts
+    if (ImGui::IsKeyPressed(ImGuiKey_GraveAccent, false)) st.actions.trigger("console");
+    if (ImGui::IsKeyPressed(ImGuiKey_Slash, false) && io.KeyShift) st.actions.trigger("help");
+    if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
+    if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) st.actions.trigger("toggle");
+    if (ImGui::IsKeyPressed(ImGuiKey_R, false)) st.actions.trigger(io.KeyCtrl ? "reload" : "reset");
+    if (ImGui::IsKeyPressed(ImGuiKey_F, false)) st.actions.trigger("fit");
+    if (ImGui::IsKeyPressed(ImGuiKey_N, false)) st.actions.trigger("next-cell");
+    if (ImGui::IsKeyPressed(ImGuiKey_M, false)) toast(st, st.actions.trigger("mute"));
+    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) && st.session && !st.running)
+        st.actions.dispatch(io.KeyShift ? "step 100" : "step 10");
+    if (ImGui::IsKeyPressed(ImGuiKey_Equal, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_KeypadAdd, false))
+        toast(st, st.actions.trigger("faster"));
+    if (ImGui::IsKeyPressed(ImGuiKey_Minus, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract, false))
+        toast(st, st.actions.trigger("slower"));
+    const ImGuiKey nums[] = {ImGuiKey_1, ImGuiKey_2, ImGuiKey_3, ImGuiKey_4};
+    for (int i = 0; i < 4; ++i)
+        if (ImGui::IsKeyPressed(nums[i], false) && !io.KeyShift) {
+            const std::string r = st.actions.dispatch("ws " + std::to_string(i + 1));
+            if (st.mode == ui::Mode::Beginner && i > 0) toast(st, r);
+        }
 }
 
-fs::path timestamped(const fs::path& root, const char* prefix, const char* ext) {
-    std::time_t t = std::time(nullptr);
-    char buf[64];
-    std::strftime(buf, sizeof buf, "-%Y%m%d-%H%M%S", std::localtime(&t));
-    return root / "screenshots" / (std::string(prefix) + buf + ext);
-}
-
-void ui_telemetry(AppState& st) {
-    ImGui::Begin("Telemetry");
-    if (!st.session) {
-        ImGui::TextDisabled("No session.");
-        ImGui::End();
-        return;
-    }
-    const auto& rec = st.session->recorder();
-    const double now = static_cast<double>(st.session->time_us()) * 1e-6;
-    if (!st.telemetry_status.empty()) ImGui::TextDisabled("%s", st.telemetry_status.c_str());
-    const app::TelemetryActions a = app::draw_telemetry(st.tv, rec, now, st.running);
-    if (a.export_view || a.export_all) {
-        const fs::path out = timestamped(st.root, "telemetry", ".csv");
-        std::size_t rows = 0;
-        const bool ok =
-            a.export_all ? export_csv(rec, out, -1e300, 1e300, {}, rows)
-                         : export_csv(rec, out, st.tv.view_t0, st.tv.view_t1, st.tv.plotted, rows);
-        st.telemetry_status = ok ? "Saved " + out.string() + " (" + std::to_string(rows) + " rows)"
-                                 : "Could not write " + out.string();
-    }
-    if (a.rewind) {
-        set_running(st, false);
-        rewind_to(st, st.tv.cursor_t);
-        st.tv.scrub = false;
-        st.tv.follow = true;
-    }
-    ImGui::End();
-}
-
-fs::path timestamped_screenshot(const fs::path& root) {
-    std::time_t t = std::time(nullptr);
-    char buf[64];
-    std::strftime(buf, sizeof buf, "mmsim-%Y%m%d-%H%M%S.png", std::localtime(&t));
-    return root / "screenshots" / buf;
+void print_run_summary(const AppState& st) {
+    const auto& w = st.session->world();
+    const auto& p = w.drive().pose;
+    std::printf(
+        "run: %s state=%s t=%.3f s pose=(%.4f, %.4f, %.1f deg) crashes=%zu enc=(%ld, %ld)\n",
+        st.mms_solver.empty() ? st.firmware.stem().string().c_str()
+                              : st.mms_solver.filename().string().c_str(),
+        host::to_string(st.session->state()), static_cast<double>(st.session->time_us()) * 1e-6,
+        p.x, p.y, p.theta * 180.0 / 3.14159265358979, w.crashes().size(),
+        static_cast<long>(w.encoder_count(0)), static_cast<long>(w.encoder_count(1)));
+    for (const auto& e : w.crashes())
+        std::printf("  crash t=%.4f s speed=%.3f m/s penetration=%.3g mm normal=(%.2f, %.2f)\n",
+                    static_cast<double>(e.time_us) * 1e-6, e.impact_speed, e.penetration * 1e3,
+                    e.normal.x, e.normal.y);
+    for (const auto& l : st.session->logs())
+        std::printf("  log %.3f  %s\n", static_cast<double>(l.time_us) * 1e-6, l.text.c_str());
+    if (const host::MmsBridge* b = st.session->mms())
+        std::printf(
+            "mms: running=%d exit=%d cell=(%d, %d) moves=%d crashes=%d invalid=%d score=%s\n",
+            st.session->mms_running() ? 1 : 0, st.session->mms_exit_code().value_or(-1),
+            b->pose().x / 2, b->pose().y / 2, b->moves(), b->crash_count(), b->invalid_count(),
+            b->stats().get("score").c_str());
+    std::printf("record: maze=%016llx config=%s firmware=%s seed=%llu\n",
+                static_cast<unsigned long long>(w.maze().hash()), st.config_hash.c_str(),
+                st.session->firmware_hash().c_str(), static_cast<unsigned long long>(w.seed()));
+    std::printf("record: trajectory=%s (t=%.3f s)\n", st.session->trajectory_hash().c_str(),
+                static_cast<double>(st.session->time_us()) * 1e-6);
 }
 
 }  // namespace
@@ -920,15 +1016,17 @@ int main(int argc, char** argv) {
     }
     Args args = *parsed;  // the saved session may fill in what the command line left out
 
-    // Crisp text on high-DPI displays; scripted pixel checks stay at 1:1 scale.
-    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, args.verify_render ? "unaware" : "permonitorv2");
+    // Crisp text on high-DPI displays; scripted runs (pixel checks, --size screenshots) stay
+    // at 1:1 so a capture is exactly --size on every machine.
+    const bool unit_scale = args.verify_render || args.frames > 0;
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, unit_scale ? "unaware" : "permonitorv2");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
         std::fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
-    const float scale = args.verify_render ? 1.0f : ImGui_ImplSDL2_GetContentScaleForDisplay(0);
+    const float scale = unit_scale ? 1.0f : ImGui_ImplSDL2_GetContentScaleForDisplay(0);
     Uint32 wflags = SDL_WINDOW_RESIZABLE | (args.hidden ? SDL_WINDOW_HIDDEN : 0);
-    if (!args.verify_render) wflags |= SDL_WINDOW_ALLOW_HIGHDPI;
+    if (!unit_scale) wflags |= SDL_WINDOW_ALLOW_HIGHDPI;
     SDL_Window* window =
         SDL_CreateWindow("MMSim", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                          static_cast<int>(static_cast<float>(args.width) * scale),
@@ -956,15 +1054,16 @@ int main(int argc, char** argv) {
     // Session persistence (F17): layout + last selections under the data root, never for
     // scripted runs (deterministic layout, no files written by tests).
     const bool persist = !scripted && !args.no_session;
-    const fs::path session_root = args.root ? *args.root : find_root();
+    const fs::path session_root =
+        args.root ? *args.root : find_root_from({exe_dir(), fs::current_path()});
     static std::string ini_path;
     ini_path = (session_root / "imgui.ini").string();
     io.IniFilename = persist ? ini_path.c_str() : nullptr;
     const fs::path settings_file = session_root / "mmsim.json";
-    app::AppSettings saved;
+    AppSettings saved;
     if (persist) {
         std::string serr;
-        if (!app::load_settings(settings_file, saved, serr))
+        if (!load_settings(settings_file, saved, serr))
             std::fprintf(stderr, "warning: %s (starting with defaults)\n", serr.c_str());
         std::error_code ec;
         const bool any_target = args.maze || args.firmware || args.mms_solver;
@@ -982,22 +1081,32 @@ int main(int argc, char** argv) {
         }
         if (!args.seed_given) args.seed = saved.seed;
         if (!args.speed_given) args.speed = saved.speed;
+        if (!args.workspace) args.workspace = saved.workspace;
+        if (!args.mode) args.mode = saved.mode;
     }
-    ImGui::StyleColorsDark();
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.FrameRounding = 3.0f;
-    style.GrabRounding = 3.0f;
-    style.ScaleAllSizes(scale);
-    style.FontScaleDpi = scale;
+    theme::apply(scale, exe_dir() / "fonts");
+    theme::set_motion_enabled(!scripted);
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
 
     AppState st;
     st.root = session_root;
+    st.scripted = scripted;
     if (persist) {
         st.boot_buttons[0] = saved.boot_buttons[0];
         st.boot_buttons[1] = saved.boot_buttons[1];
+        st.muted = saved.muted;
     }
+    Audio audio;
+    audio.init(!scripted && !args.hidden && args.live_for_s <= 0.0);
+    audio.set_muted(st.muted);
+    register_actions(st, audio);
+    if (args.mode)
+        if (auto m = ui::parse_mode(*args.mode)) st.mode = *m;
+    if (args.workspace)
+        if (auto w = ui::parse_workspace(*args.workspace)) set_workspace(st, *w);
+    if (args.verify_render)
+        st.workspace = ui::Workspace::Cockpit;  // pixel probes need the plain 2-D maze
     st.seed = args.seed;
     st.pacer.set_speed(args.speed);
     st.library = scan_library(st.root);
@@ -1015,7 +1124,7 @@ int main(int argc, char** argv) {
             if (args.exit_after) return 1;
         }
     }
-    st.firmware_dir = find_firmware_dir(st.root);
+    st.firmware_dir = find_firmware_dir(st.root, exe_dir());
     st.firmwares = scan_firmware(st.firmware_dir);
     if (args.mms_solver) {
         st.mms_solver = fs::absolute(*args.mms_solver);
@@ -1038,41 +1147,11 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", st.sim_error.c_str());
         if (args.exit_after) return 1;
     }
+    refresh_archive(st);
     if (args.run_for_ms >= 0 && st.session) {
         advance(st, args.run_for_ms);
         if (st.session) {
-            const auto& w = st.session->world();
-            const auto& p = w.drive().pose;
-            std::printf(
-                "run: %s state=%s t=%.3f s pose=(%.4f, %.4f, %.1f deg) crashes=%zu enc=(%ld, "
-                "%ld)\n",
-                st.mms_solver.empty() ? st.firmware.stem().string().c_str()
-                                      : st.mms_solver.filename().string().c_str(),
-                host::to_string(st.session->state()),
-                static_cast<double>(st.session->time_us()) * 1e-6, p.x, p.y,
-                p.theta * 180.0 / 3.14159265358979, w.crashes().size(),
-                static_cast<long>(w.encoder_count(0)), static_cast<long>(w.encoder_count(1)));
-            for (const auto& e : w.crashes())
-                std::printf(
-                    "  crash t=%.4f s speed=%.3f m/s penetration=%.3g mm normal=(%.2f, %.2f)\n",
-                    static_cast<double>(e.time_us) * 1e-6, e.impact_speed, e.penetration * 1e3,
-                    e.normal.x, e.normal.y);
-            for (const auto& l : st.session->logs())
-                std::printf("  log %.3f  %s\n", static_cast<double>(l.time_us) * 1e-6,
-                            l.text.c_str());
-            if (const host::MmsBridge* b = st.session->mms())
-                std::printf(
-                    "mms: running=%d exit=%d cell=(%d, %d) moves=%d crashes=%d invalid=%d "
-                    "score=%s\n",
-                    st.session->mms_running() ? 1 : 0, st.session->mms_exit_code().value_or(-1),
-                    b->pose().x / 2, b->pose().y / 2, b->moves(), b->crash_count(),
-                    b->invalid_count(), b->stats().get("score").c_str());
-            std::printf("record: maze=%016llx config=%s firmware=%s seed=%llu\n",
-                        static_cast<unsigned long long>(w.maze().hash()), st.config_hash.c_str(),
-                        st.session->firmware_hash().c_str(),
-                        static_cast<unsigned long long>(w.seed()));
-            std::printf("record: trajectory=%s (t=%.3f s)\n", st.session->trajectory_hash().c_str(),
-                        static_cast<double>(st.session->time_us()) * 1e-6);
+            print_run_summary(st);
             if (args.export_csv) {
                 std::size_t rows = 0;
                 if (export_csv(st.session->recorder(), *args.export_csv, -1e300, 1e300, {}, rows)) {
@@ -1085,8 +1164,28 @@ int main(int argc, char** argv) {
                     if (args.exit_after) return 1;
                 }
             }
-            // Mid-run screenshot: paused, so the plots show the last window.
-            st.tv.follow = true;
+            if (args.report) {
+                std::string err;
+                if (write_report(st, *args.report, err)) {
+                    std::printf("report: %s\n", args.report->string().c_str());
+                } else {
+                    std::fprintf(stderr, "error: report: %s\n", err.c_str());
+                    if (args.exit_after) return 1;
+                }
+            }
+            if (args.save_run) {
+                std::string err;
+                const fs::path p = save_current_run(st, err);
+                if (p.empty()) {
+                    std::fprintf(stderr, "error: save-run: %s\n", err.c_str());
+                    if (args.exit_after) return 1;
+                } else {
+                    std::printf("run saved: %s\n", p.string().c_str());
+                }
+            }
+            st.tv.follow = true;  // mid-run screenshot: paused, plots show the last window
+            st.seen_logs = st.session->logs().size();
+            st.seen_crashes = st.session->world().crashes().size();
         } else {
             std::fprintf(stderr, "error: %s\n", st.sim_error.c_str());
             if (args.exit_after) return 1;
@@ -1094,13 +1193,15 @@ int main(int argc, char** argv) {
     } else if ((args.firmware || args.mms_solver) && st.session && !scripted) {
         st.running = true;
     }
+    // Compare: run B defaults to the newest archived run that is not this one.
+    if (!st.archive.empty()) load_compare(st, 0);
+
     Uint64 last_ticks = SDL_GetPerformanceCounter();
     const Uint64 live_t0 = last_ticks;
     const std::int64_t live_sim0 = st.session ? st.session->time_us() : 0;
 
     int exit_code = 0;
     bool done = false;
-    bool layout_built = false;
     for (int frame = 0; !done; ++frame) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -1119,54 +1220,22 @@ int main(int argc, char** argv) {
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
+        top_bar(st);
         const ImGuiViewport* vp = ImGui::GetMainViewport();
-        const ImGuiID dockspace = ImGui::GetID("MainDockSpace");
-        if (!layout_built && (scripted || !ImGui::DockBuilderGetNode(dockspace)))
-            build_default_layout(dockspace, vp->Size, !st.firmware.empty());
-        layout_built = true;
-        ImGui::DockSpaceOverViewport(dockspace, vp);
-
-        if (ImGui::IsKeyPressed(ImGuiKey_F12, false)) st.want_screenshot = true;
-        // Shortcuts only when ImGui does not want the keyboard (typing in the maze filter,
-        // an active slider, ...). Keyboard navigation is off, so this is false otherwise.
-        if (!io.WantCaptureKeyboard) {
-            if (ImGui::IsKeyPressed(ImGuiKey_Space, false) && st.session)
-                set_running(st, !st.running);
-            if (ImGui::IsKeyPressed(ImGuiKey_R, false)) {
-                if (io.KeyCtrl) st.firmwares = scan_firmware(st.firmware_dir);
-                make_session(st);
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_N, false) && st.session) {
-                set_running(st, false);
-                advance(st, 5000, 0.0, true);
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) && st.session && !st.running)
-                advance(st, io.KeyShift ? 100 : 10);
-            const bool up = ImGui::IsKeyPressed(ImGuiKey_Equal, false) ||
-                            ImGui::IsKeyPressed(ImGuiKey_KeypadAdd, false);
-            const bool down = ImGui::IsKeyPressed(ImGuiKey_Minus, false) ||
-                              ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract, false);
-            if (up || down) {
-                static constexpr double kLadder[] = {0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 64};
-                const double s = st.pacer.is_max() ? 1000.0 : st.pacer.speed();
-                double next = s;
-                if (up) {
-                    next = host::Pacer::kMax;
-                    for (double l : kLadder)
-                        if (l > s + 1e-9) {
-                            next = l;
-                            break;
-                        }
-                } else {
-                    next = kLadder[0];
-                    for (double l : kLadder)
-                        if (l < s - 1e-9) next = l;
-                }
-                st.pacer.set_speed(next);
-            }
+        const ImGuiID dock = ImGui::GetID(dockspace_name(st.workspace));
+        const int wi = static_cast<int>(st.workspace);
+        if (st.layout_state[wi] != 0) {
+            if (st.layout_state[wi] == 2 || scripted || !ImGui::DockBuilderGetNode(dock))
+                build_layout(st.workspace, dock, vp);
+            st.layout_state[wi] = 0;
         }
+        ImGui::DockSpaceOverViewport(
+            dock, vp, ImGuiDockNodeFlags_NoWindowMenuButton | ImGuiDockNodeFlags_NoCloseButton);
+
+        handle_shortcuts(st);
+
         // Pacing: simulated time = speed x wall time (exact over many frames, see Pacer);
-        // Max runs as many ticks as fit in a fixed wall budget per frame.
+        // Fast runs as many ticks as fit in a fixed wall budget per frame.
         const Uint64 now_ticks = SDL_GetPerformanceCounter();
         const double wall_dt = static_cast<double>(now_ticks - last_ticks) /
                                static_cast<double>(SDL_GetPerformanceFrequency());
@@ -1183,6 +1252,7 @@ int main(int argc, char** argv) {
                 st.window_sim_ms = 0;
             }
         }
+        if (!scripted) watch_events(st, audio);
 
         if (args.live_for_s > 0.0) {
             const double wall = static_cast<double>(now_ticks - live_t0) /
@@ -1202,12 +1272,10 @@ int main(int argc, char** argv) {
             }
         }
 
-        ui_library(st);
-        ui_maze(st);
-        ui_run(st);
-        ui_info(st);
-        ui_log(st);
-        ui_telemetry(st);
+        draw_workspace(st);
+        console_window(st);
+        help_modal(st);
+        toasts(st, io.DeltaTime);
 
         const std::string title =
             "MMSim " + std::string(core::version()) +
@@ -1216,23 +1284,26 @@ int main(int argc, char** argv) {
 
         ImGui::Render();
         SDL_RenderSetScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-        const auto bg = app::colors::kBackground;
+        const auto bg = colors::kBackground;
         SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, 255);
         SDL_RenderClear(renderer);
         ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer);
 
         const bool last_scripted = scripted && frame + 1 >= args.frames;
         if (st.want_screenshot || (last_scripted && (args.screenshot || args.verify_render))) {
-            app::Image img;
-            if (!app::capture_renderer(renderer, img)) {
+            Image img;
+            if (!capture_renderer(renderer, img)) {
                 std::fprintf(stderr, "error: screenshot capture failed: %s\n", SDL_GetError());
                 exit_code = 1;
             } else {
-                fs::path out = (last_scripted && args.screenshot) ? *args.screenshot
-                                                                  : timestamped_screenshot(st.root);
+                const fs::path out = (last_scripted && args.screenshot)
+                                         ? *args.screenshot
+                                         : timestamped(st.root / "screenshots", "mmsim", ".png");
                 if (args.screenshot || st.want_screenshot) {
-                    if (app::write_png(out, img)) {
-                        st.status = "Saved " + out.string();
+                    if (write_png(out, img)) {
+                        if (!scripted)
+                            toast(st, "Screenshot saved: " + out.filename().string(),
+                                  ui::Tone::Good);
                         std::printf("screenshot: %s (%dx%d)\n", out.string().c_str(), img.width,
                                     img.height);
                     } else {
@@ -1245,10 +1316,11 @@ int main(int argc, char** argv) {
                         std::fprintf(stderr, "verify-render: no maze loaded\n");
                         exit_code = 1;
                     } else {
-                        auto rc = app::check_maze_pixels(img, st.cam, *st.maze, st.dims);
+                        const Camera& cam = st.cams[static_cast<int>(ui::Workspace::Cockpit)];
+                        auto rc = check_maze_pixels(img, cam, *st.maze, st.dims);
                         std::printf("verify-render: %d probes, %zu failure(s), %.1f px/cell\n",
                                     rc.checked, rc.failures.size(),
-                                    st.dims.cell * st.cam.pixels_per_metre());
+                                    st.dims.cell * cam.pixels_per_metre());
                         for (std::size_t i = 0; i < rc.failures.size() && i < 10; ++i)
                             std::printf("  %s\n", rc.failures[i].c_str());
                         if (!rc.ok()) exit_code = 1;
@@ -1261,10 +1333,11 @@ int main(int argc, char** argv) {
         if (last_scripted && args.exit_after) done = true;
     }
 
+    audio.shutdown();
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     if (persist) {
-        app::AppSettings now;
+        AppSettings now;
         now.maze = st.maze ? fs::absolute(st.maze_path) : fs::path();
         now.config = st.config_path.empty() ? fs::path() : fs::absolute(st.config_path);
         now.firmware = st.firmware.empty() ? fs::path() : fs::absolute(st.firmware);
@@ -1274,8 +1347,11 @@ int main(int argc, char** argv) {
         now.speed = st.pacer.speed();
         now.boot_buttons[0] = st.boot_buttons[0];
         now.boot_buttons[1] = st.boot_buttons[1];
+        now.workspace = ui::workspace_id(st.workspace);
+        now.mode = ui::mode_id(st.mode);
+        now.muted = st.muted;
         std::string serr;
-        if (!app::save_settings(settings_file, now, serr))
+        if (!save_settings(settings_file, now, serr))
             std::fprintf(stderr, "warning: %s\n", serr.c_str());
     }
     ImPlot::DestroyContext();

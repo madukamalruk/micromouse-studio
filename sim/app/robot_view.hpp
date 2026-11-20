@@ -49,6 +49,6 @@ void draw_robot(ImDrawList* dl, const Camera& cam, const core::World& w, const P
 
 /// Outline of the robot at a recorded pose (timeline scrubbing).
 void draw_ghost(ImDrawList* dl, const Camera& cam, const core::RobotConfig& cfg,
-                const core::Pose& p);
+                const core::Pose& p, Rgba colour = tok::text);
 
 }  // namespace mmsim::app

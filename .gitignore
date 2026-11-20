@@ -30,3 +30,4 @@ mmsim.json
 *.swp
 __pycache__/
 *.pyc
+reports/

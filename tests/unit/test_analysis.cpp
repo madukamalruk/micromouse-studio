@@ -431,6 +431,11 @@ TEST_SUITE("compare") {
         const fs::path root = fs::temp_directory_path() / "mmsim_runs_test";
         fs::remove_all(root);
         ArchivedRun r;
+        {
+            const std::string id = make_run_id("2026-11-20 12:00:00", "m", "h");
+            CHECK(id == "2026-11-20-12-00-00_m_h");
+            CHECK(id.find_first_of(": /\\") == std::string::npos);
+        }
         r.id = make_run_id("20261120-120000", "uk 1987.txt", "abcdef0123456789");
         CHECK(r.id == "20261120-120000_uk_1987_txt_abcdef01");
         r.meta = {{"maze", "uk1987f"}, {"trajectory_hash", "abcdef0123456789"}};

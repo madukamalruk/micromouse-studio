@@ -70,7 +70,7 @@ void draw_maze(ImDrawList* dl, const Camera& cam, const core::Maze& maze,
             std::uint32_t rgb = 0;
             if (!host::mms_color_rgb(ch, rgb)) continue;
             const Rgba c{static_cast<std::uint8_t>(rgb >> 16), static_cast<std::uint8_t>(rgb >> 8),
-                         static_cast<std::uint8_t>(rgb), 150};
+                         static_cast<std::uint8_t>(rgb), 72};
             const auto [x, y] = cell;
             fill(dl, cam, {x * dims.cell, y * dims.cell, (x + 1) * dims.cell, (y + 1) * dims.cell},
                  c);

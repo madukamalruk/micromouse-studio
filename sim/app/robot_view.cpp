@@ -11,15 +11,15 @@ namespace mmsim::app {
 
 namespace {
 
-constexpr Rgba kBody{70, 140, 220, 210};
-constexpr Rgba kBodyEdge{150, 200, 255, 255};
-constexpr Rgba kBodyContact{255, 170, 60, 255};
-constexpr Rgba kWheel{20, 22, 26, 255};
-constexpr Rgba kArrow{240, 245, 255, 255};
-constexpr Rgba kCrash{255, 90, 60, 255};
-constexpr Rgba kBeamIr{255, 80, 120, 255};
-constexpr Rgba kBeamTof{80, 220, 255, 255};
-constexpr Rgba kBeamOff{150, 150, 160, 255};
+constexpr Rgba kBody = tok::accent.with_alpha(0.28f);
+constexpr Rgba kBodyEdge = tok::accent;
+constexpr Rgba kBodyContact = tok::bad;
+constexpr Rgba kWheel{8, 10, 13, 255};
+constexpr Rgba kArrow = tok::text;
+constexpr Rgba kCrash = tok::bad;
+constexpr Rgba kBeamIr{244, 114, 182, 255};  // IR rays: pink-red, distinct from the cyan accent
+constexpr Rgba kBeamTof = tok::accent;
+constexpr Rgba kBeamOff = tok::muted;
 
 ImVec2 S(const Camera& cam, double x, double y) {
     const Vec2 p = cam.world_to_screen({x, y});
@@ -54,30 +54,22 @@ void PathTrace::add(const core::Pose& p, double speed) {
 
 Rgba speed_color(float f) {
     f = std::clamp(f, 0.0f, 1.0f);
-    // piecewise: 0 blue (60,120,255) -> 0.33 green (60,220,120) -> 0.66 yellow (250,220,60)
-    // -> 1 red (255,70,60)
-    struct K {
-        float t;
-        float r, g, b;
-    };
-    static constexpr K k[] = {
-        {0.0f, 60, 120, 255}, {0.33f, 60, 220, 120}, {0.66f, 250, 220, 60}, {1.0f, 255, 70, 60}};
-    int i = 0;
-    while (i < 2 && f > k[i + 1].t) ++i;
-    const float u = (f - k[i].t) / (k[i + 1].t - k[i].t);
-    auto mix = [u](float a, float b) { return static_cast<std::uint8_t>(a + (b - a) * u); };
-    return {mix(k[i].r, k[i + 1].r), mix(k[i].g, k[i + 1].g), mix(k[i].b, k[i + 1].b), 220};
+    // DESIGN.md: slow = deep cyan, mid = accent, fast = warn amber.
+    constexpr Rgba slow{30, 110, 150, 255};
+    const Rgba c = f < 0.55f ? mix(slow, tok::accent, f / 0.55f)
+                             : mix(tok::accent, tok::warn, (f - 0.55f) / 0.45f);
+    return c.with_alpha(0.86f);
 }
 
 void draw_ghost(ImDrawList* dl, const Camera& cam, const core::RobotConfig& cfg,
-                const core::Pose& p) {
+                const core::Pose& p, Rgba colour) {
     const float ppm = static_cast<float>(cam.pixels_per_metre());
     const auto& b = cfg.body;
-    robot_rect(dl, cam, p, b.offset_x, 0.0, b.length / 2, b.width / 2, {255, 220, 80, 60},
-               {255, 220, 80, 255}, std::max(1.5f, 0.0015f * ppm));
+    robot_rect(dl, cam, p, b.offset_x, 0.0, b.length / 2, b.width / 2, colour.with_alpha(0.22f),
+               colour, std::max(1.5f, 0.0015f * ppm));
     const double L = b.offset_x + b.length / 2.0 - 0.008;
     dl->AddLine(S(cam, p.x, p.y), S(cam, p.x + L * std::cos(p.theta), p.y + L * std::sin(p.theta)),
-                IM_COL32(255, 220, 80, 255), std::max(1.5f, 0.0025f * ppm));
+                colour.packed(), std::max(1.5f, 0.0025f * ppm));
 }
 
 void draw_robot(ImDrawList* dl, const Camera& cam, const core::World& w, const PathTrace& trace,

@@ -12,9 +12,10 @@ namespace mmsim::app {
 /// rolling window ending at "now"; when paused they are free (zoom/pan with the mouse) and a
 /// scrub cursor selects a recorded instant (ghost robot on the maze, "rewind to cursor").
 struct TelemetryView {
-    double window_s = 5.0;  // rolling window length while following
-    bool follow = true;     // x axes track "now" (forced on while running)
-    double view_t0 = 0.0;   // visible x range of the last frame (CSV export of the view)
+    double window_s = 5.0;      // rolling window length while following
+    unsigned groups = 1u | 4u;  // plot groups: 1 motion, 2 control, 4 power, 8 sensors
+    bool follow = true;         // x axes track "now" (forced on while running)
+    double view_t0 = 0.0;       // visible x range of the last frame (CSV export of the view)
     double view_t1 = 0.0;
     bool scrub = false;                // cursor active (paused)
     bool jump = false;                 // timeline moved: centre the view on the cursor once

@@ -18,6 +18,10 @@ struct AppSettings {
     std::uint64_t seed = 1;
     double speed = 1.0;  // 0 = max
     bool boot_buttons[2] = {false, false};
+    // Slice 9.10 UI: workspace (cockpit/studio/telemetry/tuning), mode (beginner/engineer), audio.
+    std::string workspace = "cockpit";
+    std::string mode = "engineer";
+    bool muted = false;
 };
 
 /// Missing file -> defaults, true. Unreadable/corrupt file -> defaults, false + error (the

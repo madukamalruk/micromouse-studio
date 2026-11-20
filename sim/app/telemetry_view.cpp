@@ -7,6 +7,9 @@
 #include <cmath>
 #include <cstdio>
 
+#include "sim/app/theme.hpp"
+#include "sim/app/widgets.hpp"
+
 namespace mmsim::app {
 
 void visible_range(const host::TelemetryChannel& c, double x0, double x1, std::size_t& i0,
@@ -76,18 +79,29 @@ TelemetryActions draw_telemetry(TelemetryView& v, const host::TelemetryRecorder&
     const double t_first = clock && clock->size() ? clock->t[0] : 0.0;
     const double t_last = clock && clock->size() ? clock->t.back() : now_s;
 
-    // --- toolbar ---------------------------------------------------------------------------
-    ImGui::SetNextItemWidth(120);
-    float win = static_cast<float>(v.window_s);
-    if (ImGui::SliderFloat("window", &win, 0.5f, 60.0f, "%.1f s", ImGuiSliderFlags_Logarithmic))
-        v.window_s = win;
-    ImGui::SameLine();
+    // --- toolbar (wraps instead of clipping: DESIGN.md "zero clipped labels") -------------
+    const char* group_names[] = {"Motion", "Control", "Power", "Sensors"};
+    for (int i = 0; i < 4; ++i) {
+        if (i) ui::flow(ui::button_width(group_names[i]));
+        const unsigned bit = 1u << i;
+        if (ui::pill_toggle(group_names[i], (v.groups & bit) != 0)) v.groups ^= bit;
+    }
+    {
+        const float w = ImGui::GetFontSize() * 9.0f;
+        ui::flow(w);
+        ImGui::SetNextItemWidth(w);
+        float win = static_cast<float>(v.window_s);
+        if (ImGui::DragFloat("##window", &win, 0.05f, 0.5f, 60.0f, "window %.1f s",
+                             ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic))
+            v.window_s = win;
+    }
+    ui::flow(ImGui::GetFrameHeight() + ImGui::CalcTextSize("Follow").x + 8.0f);
     if (ImGui::Checkbox("Follow", &v.follow) && v.follow) v.scrub = false;
-    ImGui::SameLine();
+    ui::flow(ui::button_width("Export view CSV"));
     if (ImGui::Button("Export view CSV")) act.export_view = true;
-    ImGui::SameLine();
+    ui::flow(ui::button_width("Export all CSV"));
     if (ImGui::Button("Export all CSV")) act.export_all = true;
-    ImGui::SameLine();
+    ui::flow(ui::button_width("Channels..."));
     if (ImGui::Button("Channels...")) ImGui::OpenPopup("channels");
     if (ImGui::BeginPopup("channels")) {
         ImGui::TextDisabled("Custom plot channels");
@@ -103,15 +117,23 @@ TelemetryActions draw_telemetry(TelemetryView& v, const host::TelemetryRecorder&
         ImGui::EndPopup();
     }
     if (rec.dropped_channels() > 0) {
-        ImGui::SameLine();
-        ImGui::TextColored({1.0f, 0.6f, 0.3f, 1.0f}, "channel limit (%zu): %zu dropped",
-                           host::TelemetryRecorder::kMaxChannels, rec.dropped_channels());
+        char b[96];
+        std::snprintf(b, sizeof b, "channel limit (%zu): %zu dropped",
+                      host::TelemetryRecorder::kMaxChannels, rec.dropped_channels());
+        ui::flow(ImGui::CalcTextSize(b).x);
+        ImGui::TextColored(theme::v4(tok::warn), "%s", b);
     }
 
     // Timeline: scrub the recorded window (paused only).
     ImGui::BeginDisabled(running || !clock || clock->size() == 0);
     double cur = v.scrub ? v.cursor_t : t_last;
-    ImGui::SetNextItemWidth(-ImGui::GetFontSize() * 22.0f);
+    char rec_text[48];
+    std::snprintf(rec_text, sizeof rec_text, "%.1f s recorded", t_last - t_first);
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float tail = ui::button_width("Rewind sim to cursor") + ui::button_width("Live") +
+                       ImGui::CalcTextSize(rec_text).x + st.ItemSpacing.x * 3;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    ImGui::SetNextItemWidth(avail - tail > 160.0f ? avail - tail : -1.0f);
     if (ImGui::SliderScalar("##timeline", ImGuiDataType_Double, &cur, &t_first, &t_last,
                             "t = %.3f s")) {
         v.scrub = true;
@@ -125,10 +147,10 @@ TelemetryActions draw_telemetry(TelemetryView& v, const host::TelemetryRecorder&
             v.jump = true;
         }
     }
-    ImGui::SameLine();
     ImGui::BeginDisabled(!v.scrub);
+    ui::flow(ui::button_width("Rewind sim to cursor"));
     if (ImGui::Button("Rewind sim to cursor")) act.rewind = true;
-    ImGui::SameLine();
+    ui::flow(ui::button_width("Live"));
     if (ImGui::Button("Live")) {
         act.live = true;
         v.scrub = false;
@@ -136,17 +158,23 @@ TelemetryActions draw_telemetry(TelemetryView& v, const host::TelemetryRecorder&
     }
     ImGui::EndDisabled();
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::TextDisabled("%.1f s recorded", t_last - t_first);
+    ui::flow(ImGui::CalcTextSize(rec_text).x);
+    ImGui::TextDisabled("%s", rec_text);
 
     // --- plots -----------------------------------------------------------------------------
-    std::vector<PlotSpec> plots = {
-        {"Linear velocity", "mm/s", {"v_set", "v", "sim.v"}, ""},
-        {"Angular velocity", "deg/s", {"w_set", "w", "sim.w", "sim.gyro_z"}, ""},
-        {"Steering / PID error", "", {"steer", "fwd_err", "rot_err"}, ""},
-        {"Motor voltage", "V", {"sim.motor_l", "sim.motor_r"}, ""},
-        {"Sensor distance", "mm", {}, "sim.d."},
-    };
+    std::vector<PlotSpec> plots;
+    if (v.groups & 1u) {
+        plots.push_back({"Linear velocity", "mm/s", {"v_set", "v", "sim.v"}, ""});
+        plots.push_back({"Angular velocity", "deg/s", {"w_set", "w", "sim.w", "sim.gyro_z"}, ""});
+    }
+    if (v.groups & 2u)
+        plots.push_back({"Steering / PID error", "", {"steer", "fwd_err", "rot_err"}, ""});
+    if (v.groups & 4u) {
+        plots.push_back({"Motor voltage", "V", {"sim.motor_l", "sim.motor_r"}, ""});
+        plots.push_back({"Motor current", "A", {"sim.i_l", "sim.i_r"}, ""});
+        plots.push_back({"Battery", "V", {"sim.v_bat"}, ""});
+    }
+    if (v.groups & 8u) plots.push_back({"Sensor distance", "mm", {}, "sim.d."});
     if (!v.custom.empty()) plots.push_back({"Custom", "", {v.custom.begin(), v.custom.end()}, ""});
 
     double x0 = v.view_t0, x1 = v.view_t1;
@@ -161,7 +189,14 @@ TelemetryActions draw_telemetry(TelemetryView& v, const host::TelemetryRecorder&
 
     const ImVec2 size = ImGui::GetContentRegionAvail();
     const int rows = static_cast<int>(plots.size());
-    if (ImPlot::BeginSubplots("##telemetry", rows, 1, {-1, std::max(size.y, 120.0f * rows)},
+    if (rows == 0) {
+        ImGui::TextDisabled("Pick a plot group above.");
+        return act;
+    }
+    const float row_h = 96.0f;
+    ImGui::BeginChild("##plots", {0, 0}, ImGuiChildFlags_None);
+    if (ImPlot::BeginSubplots("##telemetry", rows, 1,
+                              {-1, std::max(ImGui::GetContentRegionAvail().y, row_h * rows)},
                               ImPlotSubplotFlags_LinkAllX | ImPlotSubplotFlags_NoTitle)) {
         bool first = true;
         for (const auto& p : plots) {
@@ -198,9 +233,9 @@ TelemetryActions draw_telemetry(TelemetryView& v, const host::TelemetryRecorder&
                 v.plotted.push_back(c->name);
             }
             if (v.scrub) {
-                if (ImPlot::DragLineX(0, &v.cursor_t, {1.0f, 0.85f, 0.3f, 1.0f}, 1.5f))
+                if (ImPlot::DragLineX(0, &v.cursor_t, theme::v4(tok::warn), 1.5f))
                     v.cursor_t = std::clamp(v.cursor_t, t_first, t_last);
-                if (first) ImPlot::TagX(v.cursor_t, {1.0f, 0.85f, 0.3f, 1.0f}, "%.3f", v.cursor_t);
+                if (first) ImPlot::TagX(v.cursor_t, theme::v4(tok::warn), "%.3f", v.cursor_t);
             }
             // Clicking a paused plot puts the scrub cursor there.
             if (!running && ImPlot::IsPlotHovered() && ImGui::IsMouseDoubleClicked(0)) {
@@ -213,6 +248,8 @@ TelemetryActions draw_telemetry(TelemetryView& v, const host::TelemetryRecorder&
         }
         ImPlot::EndSubplots();
     }
+    ImGui::EndChild();
+    (void)size;
     // Free zoom/pan when paused: once the user touches the axes, stop following.
     if (!running && v.follow && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
         (ImGui::GetIO().MouseWheel != 0.0f || ImGui::IsMouseDragging(0)))

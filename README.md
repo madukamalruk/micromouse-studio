@@ -107,3 +107,5 @@ docs/                     prd.md, plan.md, decisions.md, hal.md, phase2-neomouse
 ```
 
 Phase 2 (Neomouse V2 on STM32F405): [docs/phase2-neomouse.md](docs/phase2-neomouse.md).
+
+Fonts: Roboto (Apache License 2.0, Google) and Cousine (SIL Open Font License 1.1, Google), both from the Dear ImGui distribution.

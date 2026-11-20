@@ -62,6 +62,9 @@ bool load_settings(const fs::path& file, AppSettings& out, std::string& error) {
     if (out.speed < 0) out.speed = 1.0;
     get(j, "boot_button0", out.boot_buttons[0]);
     get(j, "boot_button1", out.boot_buttons[1]);
+    get(j, "workspace", out.workspace);
+    get(j, "mode", out.mode);
+    get(j, "muted", out.muted);
     return true;
 }
 
@@ -77,6 +80,9 @@ bool save_settings(const fs::path& file, const AppSettings& s, std::string& erro
     j["speed"] = s.speed;
     j["boot_button0"] = s.boot_buttons[0];
     j["boot_button1"] = s.boot_buttons[1];
+    j["workspace"] = s.workspace;
+    j["mode"] = s.mode;
+    j["muted"] = s.muted;
     const fs::path tmp = fs::path(file).concat(".tmp");
     {
         std::ofstream f(tmp, std::ios::binary | std::ios::trunc);

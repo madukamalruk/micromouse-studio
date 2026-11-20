@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "sim/app/camera.hpp"
+#include "sim/app/palette.hpp"
 #include "sim/core/maze.hpp"
 #include "sim/core/maze_geometry.hpp"
 #include "sim/core/maze_validate.hpp"
@@ -14,27 +15,20 @@ struct ImDrawList;
 
 namespace mmsim::app {
 
-/// RGBA8 colours, ImGui IM_COL32 byte order (R in the low byte).
-struct Rgba {
-    std::uint8_t r, g, b, a;
-    std::uint32_t packed() const {
-        return std::uint32_t(r) | (std::uint32_t(g) << 8) | (std::uint32_t(b) << 16) |
-               (std::uint32_t(a) << 24);
-    }
-};
-
 namespace colors {
-inline constexpr Rgba kBackground{24, 26, 31, 255};
-inline constexpr Rgba kFloor{36, 39, 46, 255};
-inline constexpr Rgba kGrid{48, 52, 61, 255};
-inline constexpr Rgba kWall{214, 69, 65, 255};  // real wall (mms-style red)
-inline constexpr Rgba kPost{205, 209, 217, 255};
-inline constexpr Rgba kStart{40, 92, 64, 255};
-inline constexpr Rgba kGoal{110, 86, 30, 255};
-inline constexpr Rgba kText{150, 156, 168, 255};
-inline constexpr Rgba kFwText{235, 238, 245, 255};
-inline constexpr Rgba kKnownWall{80, 200, 255, 255};  // firmware map agrees with the maze
-inline constexpr Rgba kWrongWall{255, 200, 40, 255};  // firmware map disagrees
+// Maze rendering (DESIGN.md "Maze rendering"); all derived from the tokens in palette.hpp.
+inline constexpr Rgba kBackground = tok::canvas;
+inline constexpr Rgba kFloor{17, 21, 27,
+                             255};             // a lift above the canvas: the maze reads as a board
+inline constexpr Rgba kGrid{27, 32, 42, 255};  // hairline at ~50 % over the floor
+inline constexpr Rgba kWall{220, 227, 236, 255};  // real wall: light, crisp against the floor
+inline constexpr Rgba kPost = tok::text;
+inline constexpr Rgba kStart = mix(kFloor, tok::accent, 0.16f);
+inline constexpr Rgba kGoal = mix(kFloor, tok::good, 0.20f);
+inline constexpr Rgba kText{96, 106, 122, 255};  // BFS distances / coordinates: quiet
+inline constexpr Rgba kFwText = tok::text;
+inline constexpr Rgba kKnownWall = tok::accent;  // firmware map agrees with the maze
+inline constexpr Rgba kWrongWall = tok::warn;    // firmware map disagrees
 }  // namespace colors
 
 struct MazeViewOptions {

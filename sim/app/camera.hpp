@@ -9,12 +9,13 @@ struct Vec2 {
 
 /// 2-D orthographic camera. World: metres, y up. Screen: pixels, y down, inside a viewport.
 class Camera {
-public:
+  public:
     static constexpr double kMinPixelsPerMetre = 20.0;
     static constexpr double kMaxPixelsPerMetre = 40000.0;
 
     void set_viewport(Vec2 origin, Vec2 size);
-    /// Fit the world box [lo, hi] into the viewport with `margin` (fraction of the viewport) per side.
+    /// Fit the world box [lo, hi] into the viewport with `margin` (fraction of the viewport) per
+    /// side.
     void fit(Vec2 lo, Vec2 hi, double margin);
     void zoom_at(Vec2 screen_point, double factor);
     void pan_pixels(Vec2 delta);
@@ -25,7 +26,7 @@ public:
     Vec2 viewport_origin() const { return origin_; }
     Vec2 viewport_size() const { return size_; }
 
-private:
+  private:
     Vec2 origin_{0, 0};
     Vec2 size_{1, 1};
     Vec2 centre_{0, 0};  // world point at the viewport centre

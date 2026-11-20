@@ -22,8 +22,9 @@ add_executable(mmsim_unit_tests
     unit/test_mms.cpp
     unit/test_batch.cpp
     unit/test_settings.cpp
-    unit/test_analysis.cpp)
-target_link_libraries(mmsim_unit_tests PRIVATE simcore mmsim_host mmsim_camera mmsim_cli_args mmsim_settings mmhal
+    unit/test_analysis.cpp
+    unit/test_ui_logic.cpp)
+target_link_libraries(mmsim_unit_tests PRIVATE simcore mmsim_host mmsim_camera mmsim_cli_args mmsim_settings mmsim_uilogic mmhal
     doctest::doctest nlohmann_json::nlohmann_json)
 target_compile_definitions(mmsim_unit_tests PRIVATE
     MMSIM_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
@@ -50,7 +51,7 @@ else()
 endif()
 mmsim_set_warnings(mmsim_unit_tests)
 
-add_test(NAME unit.smoke    COMMAND mmsim_unit_tests --test-suite-exclude=maze,app,physics,host,watchdog,sensors,integration,telemetry,replay,controls,mms,batch,analysis,battery,compare)
+add_test(NAME unit.smoke    COMMAND mmsim_unit_tests --test-suite-exclude=maze,app,physics,host,watchdog,sensors,integration,telemetry,replay,controls,mms,batch,analysis,battery,compare,ui)
 add_test(NAME unit.maze     COMMAND mmsim_unit_tests --test-suite=maze)
 add_test(NAME unit.app      COMMAND mmsim_unit_tests --test-suite=app)
 add_test(NAME unit.physics  COMMAND mmsim_unit_tests --test-suite=physics)
@@ -64,6 +65,7 @@ add_test(NAME unit.batch    COMMAND mmsim_unit_tests --test-suite=batch)
 add_test(NAME unit.analysis COMMAND mmsim_unit_tests --test-suite=analysis)
 add_test(NAME unit.battery  COMMAND mmsim_unit_tests --test-suite=battery)
 add_test(NAME unit.compare  COMMAND mmsim_unit_tests --test-suite=compare)
+add_test(NAME unit.ui       COMMAND mmsim_unit_tests --test-suite=ui)
 add_test(NAME integration.demo_floodfill COMMAND mmsim_unit_tests --test-suite=integration)
 # Own process: a hung firmware leaves a detached spinning thread until exit.
 add_test(NAME unit.watchdog COMMAND mmsim_unit_tests --test-suite=watchdog)
@@ -81,6 +83,7 @@ set_tests_properties(unit.batch    PROPERTIES LABELS "unit;batch;cli" TIMEOUT 90
 set_tests_properties(unit.analysis PROPERTIES LABELS "unit;analysis")
 set_tests_properties(unit.battery  PROPERTIES LABELS "unit;battery;analysis")
 set_tests_properties(unit.compare  PROPERTIES LABELS "unit;compare;analysis")
+set_tests_properties(unit.ui       PROPERTIES LABELS "unit;ui")
 set_tests_properties(integration.demo_floodfill PROPERTIES LABELS "integration" TIMEOUT 900)
 set_tests_properties(unit.watchdog PROPERTIES LABELS "unit;host" TIMEOUT 30)
 
@@ -114,6 +117,7 @@ set_tests_properties(app.rejects_bad_maze PROPERTIES WILL_FAIL TRUE LABELS "app;
 
 set_tests_properties(unit.smoke unit.maze unit.app unit.physics unit.sensors unit.host unit.watchdog
     unit.telemetry unit.replay unit.controls unit.mms unit.batch
+    unit.analysis unit.battery unit.compare unit.ui
     integration.demo_floodfill
     PROPERTIES ENVIRONMENT_MODIFICATION "${MMSIM_TEST_ENV}")
 

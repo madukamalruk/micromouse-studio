@@ -30,11 +30,11 @@ Status colours are never the only signal: every status pill also carries words.
 
 ## Type
 
-- UI: **Inter** (SIL OFL 1.1), 15 px regular, 13 px small labels, 18 px semibold section titles.
-- Numbers: **JetBrains Mono** (SIL OFL 1.1), 15 px. Every live number (time, speed,
+- UI: **Roboto Medium** (Apache-2.0), 15 px regular, 13 px small labels, 18 px section titles.
+- Numbers: **Cousine** (SIL OFL 1.1), 15 px. Every live number (time, speed,
   sensor mm, PWM %) is drawn in mono so digits never shift at 60 FPS. Fixed field
   widths (`%7.2f`), units in `muted`.
-- Fonts live in `assets/fonts/` with their `OFL.txt`; attribution in README.
+- Both fonts come from Dear ImGui's `misc/fonts` and are copied next to the exe at build time; attribution in README (D13).
 
 ## Space and shape
 
