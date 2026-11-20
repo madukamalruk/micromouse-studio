@@ -4,8 +4,15 @@ target_include_directories(mmsim_camera PUBLIC "${PROJECT_SOURCE_DIR}")
 mmsim_set_warnings(mmsim_camera)
 
 # GUI pieces (ImGui draw lists, screenshots).
+# Session persistence (mmsim.json): no GUI deps, unit-tested directly.
+add_library(mmsim_settings STATIC settings.cpp)
+target_include_directories(mmsim_settings PUBLIC "${PROJECT_SOURCE_DIR}")
+target_link_libraries(mmsim_settings PRIVATE nlohmann_json::nlohmann_json)
+mmsim_set_warnings(mmsim_settings)
+
 add_library(mmsim_applib STATIC maze_view.cpp robot_view.cpp screenshot.cpp telemetry_view.cpp)
-target_link_libraries(mmsim_applib PUBLIC mmsim_camera simcore mmsim_host imgui_bundle PRIVATE stb_headers)
+target_link_libraries(mmsim_applib PUBLIC mmsim_camera mmsim_settings simcore mmsim_host imgui_bundle
+    PRIVATE stb_headers)
 mmsim_set_warnings(mmsim_applib)
 
 add_executable(mmsim main.cpp)

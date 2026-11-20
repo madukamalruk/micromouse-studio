@@ -204,10 +204,10 @@ Expected: all mms tests pass; manual run shows the solver's colours/text/walls o
 ---
 
 ## Slice 8 — Headless batch runner `mmsim-cli` + polish (M)
-- [ ] 8.1 `sim/cli`: `--firmware NAME|--mms-solver EXE`, `--mazes GLOB...`, `--config`, `--seed`, `--max-sim-time`, `--jobs N` (parallel worlds), `--json/--csv out`; table to stdout; exit 1 on any crash/timeout.
-- [ ] 8.2 Session save (last maze/config/firmware, ImGui layout).
-- [ ] 8.3 `README.md` (build, run, write-your-own-firmware guide, HAL reference), `docs/hal.md`, Phase-2 hand-off notes (`docs/phase2-neomouse.md`: what to add — `neomouse_v2.json`, VL53L0X model, `hal_stm32.c` mapping).
-- [ ] 8.4 Performance pass: physics tick ≤ 20 µs; headless ≥ 50× real time for demo.
+- [x] 8.1 `sim/cli`: `--firmware NAME|--mms-solver EXE`, `--mazes GLOB...`, `--config`, `--seed`, `--max-sim-time`, `--jobs N` (parallel worlds), `--json/--csv out`; table to stdout; exit 1 on any crash/timeout.
+- [x] 8.2 Session save (last maze/config/firmware, ImGui layout).
+- [x] 8.3 `README.md` (build, run, write-your-own-firmware guide, HAL reference), `docs/hal.md`, Phase-2 hand-off notes (`docs/phase2-neomouse.md`: what to add — `neomouse_v2.json`, VL53L0X model, `hal_stm32.c` mapping).
+- [x] 8.4 Performance pass: physics tick ≤ 20 µs; headless ≥ 50× real time for demo.
 
 **Verify**
 ```powershell
@@ -221,7 +221,7 @@ Expected: report for all classic mazes; ≥ 90 % solved crash-free (failures lis
 ## Slice 9 — Championship Studio, multi-run analysis & UI/UX overhaul (L)
 Source: Neomouse V2 Mission Control (`Micromouse-NeomouseV2/tools/dashboard_page.html`, `dashboard_analysis.py`, `thermal_battery_sim.py`, `docs/MANUAL_04_TOOLS_AND_SIMULATION.md`; read-only reference). Only features not already in Slices 1-8; hardware-only bring-up tools (UART/COM, W25Q64, cold resistance) are excluded. All maths is pure C++20 in `sim/core/analysis/` (no ImGui), unit-tested and cross-checked against `dashboard_analysis.py` / `thermal_battery_sim.py` on shared vectors (`tests/fixtures/analysis/*.json`, generated once by a small Python script and committed).
 - [ ] 9.1 **Motor current, battery sag, thermal margin** (`battery_health`, `thermal_battery_sim`, closes the D9 note): expose per-motor current `I = (V - Ke w) / R` from `DriveModel`/`World`; battery model `V_term = 2 V_OCV(SoC) - R_int I_total` (OCV table + capacity + `R_int` in robot JSON), SoC integration, motor duty computed from the sagging voltage; telemetry `sim.i_l`, `sim.i_r`, `sim.v_bat`, `sim.soc`; margin gauge against 6.0 V motor cap / MCU reset; session thermal estimate (driver I^2 R_ds(on), regulator drop, first-order T_j).
-- [ ] 9.2 **Run archive & ghost comparison** (`compare_runs`, `run_series`): finished runs saved under `runs/` (gitignored: run record JSON + compressed telemetry); pick runs A and B: semi-transparent ghost mouse replay, common-distance grid `dt(s)`, `v_A(s)` vs `v_B(s)`, best gain / worst loss over a 100 mm window.
+- [ ] 9.2 **Run archive & ghost comparison** (`compare_runs`, `run_series`): finished runs saved under `runs/` (in `.gitignore` since Slice 8, so archives are never staged: run record JSON + compressed telemetry); pick runs A and B: semi-transparent ghost mouse replay, common-distance grid `dt(s)`, `v_A(s)` vs `v_B(s)`, best gain / worst loss over a 100 mm window.
 - [ ] 9.3 **Spatial heatmaps & potential field** (`motion_heatmap`, `potential_field`): per-cell peak speed, peak longitudinal accel, lateral grip use `a_lat / (mu g)`; turn-weighted Dijkstra (1 per cell + 0.5 per 90 deg) cost and departure heading per cell; colour-scaled overlays with a legend.
 - [ ] 9.4 **Cornering envelope** (`cornering`): live traction circle (a_long vs a_lat, measured `v * omega`) with the `mu g` circle; kinematic `a = v^2 / R` gauge, limit speed `sqrt(mu g R)`, verdict WITHIN / NEAR / EXCEEDS.
 - [ ] 9.5 **Trajectory deck & path preview** (`shortest_path`, `compile_trajectory`): optimal route over known walls; overlay blue orthogonal straights + orange 45 deg arcs/diagonals; segment table (type, length, entry/peak/exit speed, time) and totals (mm, s, peak g).
@@ -264,4 +264,5 @@ Slice 5 done (2026-11-20): demo_floodfill firmware solves UK 1987 (search 42 s, 
 Slice 6 done (2026-11-20): bounded telemetry recorder (17 built-in + firmware channels, 60 s at 1 kHz), ImPlot panels with rolling window / paused zoom and CSV export (`--export-csv`), mms cell colours + firmware text + known-vs-true walls, speed-coloured trace, timeline scrub with ghost robot and deterministic rewind, run record + trajectory SHA-256, speed 0.1x-64x/Max, step until next cell, DLL hot-reload, keyboard shortcuts gated by WantCaptureKeyboard (D9). Motor current/battery channels not added. Nothing pushed.
 Slice 9 planned (2026-11-20): Championship Studio, multi-run analysis and UI/UX overhaul (from the Neomouse Mission Control reference).
 Slice 7 done (2026-11-20): mms stdio mode (D10): Win32 child process with pipes, full mms text API with mms-exact stats/score, lockstep bridge (deterministic), physics motion executor with real crashes, truth or sensor wall queries, `--mms-solver` / `--mms-walls`, Run-panel mms status + wasReset button; tiny flood-fill solver reaches the UK 1987 centre (61 s, 0 crashes) and upstream mms-cpp runs unchanged. Nothing pushed.
-Next: Slice 8, then Slice 9; smooth (arc) turns in demo_floodfill after Slices 7-9 / Phase 2.
+Slice 8 done (2026-11-20): `mmsim-cli` batch runner (parallel worlds, table/JSON/CSV, exit 1 on any failure), session persistence (`mmsim.json` + `imgui.ini`), README, `docs/hal.md`, `docs/phase2-neomouse.md` (D11). Release: physics tick 6.8-7.9 us, demo 110x real time per world, 525 classic mazes in 205 s with 8 jobs; 492/525 (93.7 %) solved crash-free, failures listed in D11 (demo firmware limits). Nothing pushed.
+Next: Slice 9 (approved); demo firmware robustness on the 33 failing classic mazes is a separate follow-up; smooth (arc) turns in demo_floodfill after Slices 7-9 / Phase 2.

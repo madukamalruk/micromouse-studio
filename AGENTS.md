@@ -33,8 +33,8 @@ sim/cli/                mmsim-cli headless batch runner
 config/robots/          robot JSON configs (generic_classic.json; neomouse_v2.json = Phase 2)
 mazes/                  our own small test mazes (committed); external/mazefiles = fetched, gitignored
 tests/                  doctest unit + integration tests, golden files
-tools/                  check_hal_boundary.py, fetch_mazes.ps1
-docs/                   prd.md, plan.md, decisions.md, reference/
+tools/                  check_hal_boundary.py, fetch_mazes.ps1, fetch_mms_cpp.ps1
+docs/                   prd.md, plan.md, decisions.md, hal.md, phase2-neomouse.md, reference/
 ```
 
 ## HAL boundary rules (strict — a test enforces them)

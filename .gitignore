@@ -18,6 +18,8 @@ external/
 .claude/settings.local.json
 
 # Runtime / editor state
+runs/
+mmsim.json.tmp
 screenshots/
 imgui.ini
 mmsim.json

@@ -24,6 +24,7 @@
 #include "sim/app/maze_view.hpp"
 #include "sim/app/robot_view.hpp"
 #include "sim/app/screenshot.hpp"
+#include "sim/app/settings.hpp"
 #include "sim/app/telemetry_view.hpp"
 #include "sim/core/maze_io.hpp"
 #include "sim/core/maze_validate.hpp"
@@ -57,6 +58,8 @@ struct Args {
     bool hidden = false;
     bool software = false;
     bool verify_render = false;
+    bool no_session = false;  // --no-session: ignore and do not write mmsim.json
+    bool seed_given = false, speed_given = false;
     int width = 1280, height = 800;
 };
 
@@ -80,7 +83,8 @@ void print_usage() {
         "  --size WxH           window size (default 1280x800)\n"
         "  --hidden             hidden window (with --software for headless checks)\n"
         "  --software           SDL software renderer (diagnostic only; drops thin walls)\n"
-        "  --verify-render      pixel-check walls/posts against the maze; exit 1 on mismatch\n",
+        "  --verify-render      pixel-check walls/posts against the maze; exit 1 on mismatch\n"
+        "  --no-session         do not restore/save the last session (mmsim.json, imgui.ini)\n",
         std::string(core::version()).c_str());
 }
 
@@ -146,6 +150,7 @@ std::optional<Args> parse_args(int argc, char** argv) {
             const unsigned long long n = std::strtoull(v, &end, 0);
             if (end == v || *end != '\0') return std::nullopt;
             a.seed = n;
+            a.seed_given = true;
         } else if (s == "--speed") {
             auto v = next();
             if (!v) return std::nullopt;
@@ -157,6 +162,8 @@ std::optional<Args> parse_args(int argc, char** argv) {
                 a.speed = std::strtod(v, &end);
                 if (end == v || a.speed <= 0.0) return std::nullopt;
             }
+        } else if (s == "--no-session") {
+            a.no_session = true;
         } else if (s == "--live-for") {
             auto v = next();
             if (!v) return std::nullopt;
@@ -184,6 +191,7 @@ std::optional<Args> parse_args(int argc, char** argv) {
         }
     }
     if (a.exit_after && a.frames < 0) a.frames = 5;
+    a.speed_given = a.speed != 1.0;
     return a;
 }
 
@@ -910,7 +918,7 @@ int main(int argc, char** argv) {
         print_usage();
         return 2;
     }
-    const Args args = *parsed;
+    Args args = *parsed;  // the saved session may fill in what the command line left out
 
     // Crisp text on high-DPI displays; scripted pixel checks stay at 1:1 scale.
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, args.verify_render ? "unaware" : "permonitorv2");
@@ -945,7 +953,36 @@ int main(int argc, char** argv) {
     // toggle) and WantCaptureKeyboard would be true whenever a window has focus.
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     const bool scripted = args.frames > 0;
-    if (scripted) io.IniFilename = nullptr;  // deterministic layout for scripted runs
+    // Session persistence (F17): layout + last selections under the data root, never for
+    // scripted runs (deterministic layout, no files written by tests).
+    const bool persist = !scripted && !args.no_session;
+    const fs::path session_root = args.root ? *args.root : find_root();
+    static std::string ini_path;
+    ini_path = (session_root / "imgui.ini").string();
+    io.IniFilename = persist ? ini_path.c_str() : nullptr;
+    const fs::path settings_file = session_root / "mmsim.json";
+    app::AppSettings saved;
+    if (persist) {
+        std::string serr;
+        if (!app::load_settings(settings_file, saved, serr))
+            std::fprintf(stderr, "warning: %s (starting with defaults)\n", serr.c_str());
+        std::error_code ec;
+        const bool any_target = args.maze || args.firmware || args.mms_solver;
+        if (!args.maze && !saved.maze.empty() && fs::is_regular_file(saved.maze, ec))
+            args.maze = saved.maze;
+        if (!args.config && !saved.config.empty() && fs::is_regular_file(saved.config, ec))
+            args.config = saved.config;
+        if (!any_target) {
+            if (!saved.mms_solver.empty() && fs::is_regular_file(saved.mms_solver, ec)) {
+                args.mms_solver = saved.mms_solver;
+                args.mms_sensor_walls = saved.mms_sensor_walls;
+            } else if (!saved.firmware.empty() && fs::is_regular_file(saved.firmware, ec)) {
+                args.firmware = saved.firmware.string();
+            }
+        }
+        if (!args.seed_given) args.seed = saved.seed;
+        if (!args.speed_given) args.speed = saved.speed;
+    }
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
     style.FrameRounding = 3.0f;
@@ -956,7 +993,11 @@ int main(int argc, char** argv) {
     ImGui_ImplSDLRenderer2_Init(renderer);
 
     AppState st;
-    st.root = args.root ? *args.root : find_root();
+    st.root = session_root;
+    if (persist) {
+        st.boot_buttons[0] = saved.boot_buttons[0];
+        st.boot_buttons[1] = saved.boot_buttons[1];
+    }
     st.seed = args.seed;
     st.pacer.set_speed(args.speed);
     st.library = scan_library(st.root);
@@ -1222,6 +1263,21 @@ int main(int argc, char** argv) {
 
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();
+    if (persist) {
+        app::AppSettings now;
+        now.maze = st.maze ? fs::absolute(st.maze_path) : fs::path();
+        now.config = st.config_path.empty() ? fs::path() : fs::absolute(st.config_path);
+        now.firmware = st.firmware.empty() ? fs::path() : fs::absolute(st.firmware);
+        now.mms_solver = st.mms_solver;
+        now.mms_sensor_walls = st.mms_opt.walls == host::MmsWallSource::Sensors;
+        now.seed = st.seed;
+        now.speed = st.pacer.speed();
+        now.boot_buttons[0] = st.boot_buttons[0];
+        now.boot_buttons[1] = st.boot_buttons[1];
+        std::string serr;
+        if (!app::save_settings(settings_file, now, serr))
+            std::fprintf(stderr, "warning: %s\n", serr.c_str());
+    }
     ImPlot::DestroyContext();
     ImGui::DestroyContext();
     SDL_DestroyRenderer(renderer);

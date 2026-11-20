@@ -27,6 +27,7 @@ add_subdirectory(sim/core)
 add_subdirectory(sim/platform)
 add_subdirectory(sim/host)
 add_subdirectory(sim/app)
+add_subdirectory(sim/cli)
 
 # --- Firmware (built as DLLs for the simulator; arm-check builds them for Cortex-M4) ---
 add_subdirectory(firmware)
