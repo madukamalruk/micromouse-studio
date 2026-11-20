@@ -76,3 +76,12 @@ portable.
 - [ ] `hal_stm32.c` in the Neomouse repo; the same firmware folder builds in STM32CubeIDE.
 - [ ] Compare sim vs robot: straight-line speed profile, 90 deg turn, sensor readings at fixed
       distances; feed differences back into the JSON.
+
+## Battery block (Slice 9.1)
+Turn on the pack model once the Neomouse pack is measured (R_int from a rest/load voltage pair, see the Tuning & Reports battery card):
+```json
+"battery": { "model": true, "cells": 2, "capacity_mah": 450, "r_int_ohm": 0.15,
+             "soc0": 1.0, "electronics_a": 0.105, "reset_v": 6.0 }
+```
+With the model on, `hal_battery_voltage()` returns the sagging terminal voltage, so firmware that scales duty by `6.0 / V_bat` keeps the N20 motors at or below 6.0 V as the pack discharges.
+

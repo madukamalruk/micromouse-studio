@@ -144,6 +144,10 @@ class Session final : public HalBackend {
         kGyroZ,
         kEncL,
         kEncR,
+        kIL,
+        kIR,
+        kVBat,
+        kSoc,
         kBuiltinCount
     };
 

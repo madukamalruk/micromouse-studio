@@ -43,6 +43,16 @@ class World {
     /// duty in [-1, 1] of battery voltage; the result is clamped to motor.max_voltage.
     void set_motor_duty(int side, double duty);
     double motor_voltage(int side) const { return volts_[side & 1]; }
+    /// Armature current (A): (V - Ke * G * wheel_speed) / R; + = driving forward.
+    double motor_current(int side) const { return amps_[side & 1]; }
+    /// Pack terminal voltage (V); constant battery_voltage unless battery.model.
+    double battery_voltage() const { return v_bat_; }
+    /// Current drawn from the pack (A): electronics + sum(duty * I_motor), clamped >= 0.
+    double battery_current() const { return i_bat_; }
+    double state_of_charge() const { return soc_; }
+    double charge_used_mah() const;
+    /// Stall-current helper (also used by tests): armature current at voltage v.
+    static double armature_current(const RobotConfig& c, double v, double wheel_speed);
     int overvoltage_events() const { return model_.overvoltage_events(); }
 
     void step_tick();
@@ -83,6 +93,12 @@ class World {
     CollisionWorld collide_;
     DriveState s_;
     double volts_[2] = {0.0, 0.0};
+    double duty_[2] = {0.0, 0.0};
+    double amps_[2] = {0.0, 0.0};
+    double v_bat_ = 0.0;
+    double i_bat_ = 0.0;
+    double soc_ = 1.0;
+    void update_battery(double dt);
     std::int64_t time_us_ = 0;
     std::vector<CrashEvent> crashes_;
     bool in_contact_ = false;

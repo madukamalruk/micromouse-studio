@@ -21,7 +21,8 @@ add_executable(mmsim_unit_tests
     unit/test_replay.cpp
     unit/test_mms.cpp
     unit/test_batch.cpp
-    unit/test_settings.cpp)
+    unit/test_settings.cpp
+    unit/test_analysis.cpp)
 target_link_libraries(mmsim_unit_tests PRIVATE simcore mmsim_host mmsim_camera mmsim_cli_args mmsim_settings mmhal
     doctest::doctest nlohmann_json::nlohmann_json)
 target_compile_definitions(mmsim_unit_tests PRIVATE
@@ -49,7 +50,7 @@ else()
 endif()
 mmsim_set_warnings(mmsim_unit_tests)
 
-add_test(NAME unit.smoke    COMMAND mmsim_unit_tests --test-suite-exclude=maze,app,physics,host,watchdog,sensors,integration,telemetry,replay,controls,mms,batch)
+add_test(NAME unit.smoke    COMMAND mmsim_unit_tests --test-suite-exclude=maze,app,physics,host,watchdog,sensors,integration,telemetry,replay,controls,mms,batch,analysis,battery,compare)
 add_test(NAME unit.maze     COMMAND mmsim_unit_tests --test-suite=maze)
 add_test(NAME unit.app      COMMAND mmsim_unit_tests --test-suite=app)
 add_test(NAME unit.physics  COMMAND mmsim_unit_tests --test-suite=physics)
@@ -60,6 +61,9 @@ add_test(NAME unit.replay   COMMAND mmsim_unit_tests --test-suite=replay)
 add_test(NAME unit.controls COMMAND mmsim_unit_tests --test-suite=controls)
 add_test(NAME unit.mms      COMMAND mmsim_unit_tests --test-suite=mms)
 add_test(NAME unit.batch    COMMAND mmsim_unit_tests --test-suite=batch)
+add_test(NAME unit.analysis COMMAND mmsim_unit_tests --test-suite=analysis)
+add_test(NAME unit.battery  COMMAND mmsim_unit_tests --test-suite=battery)
+add_test(NAME unit.compare  COMMAND mmsim_unit_tests --test-suite=compare)
 add_test(NAME integration.demo_floodfill COMMAND mmsim_unit_tests --test-suite=integration)
 # Own process: a hung firmware leaves a detached spinning thread until exit.
 add_test(NAME unit.watchdog COMMAND mmsim_unit_tests --test-suite=watchdog)
@@ -74,6 +78,9 @@ set_tests_properties(unit.replay   PROPERTIES LABELS "unit;replay" TIMEOUT 300)
 set_tests_properties(unit.controls PROPERTIES LABELS "unit;controls" TIMEOUT 300)
 set_tests_properties(unit.mms      PROPERTIES LABELS "unit;mms" TIMEOUT 600)
 set_tests_properties(unit.batch    PROPERTIES LABELS "unit;batch;cli" TIMEOUT 900)
+set_tests_properties(unit.analysis PROPERTIES LABELS "unit;analysis")
+set_tests_properties(unit.battery  PROPERTIES LABELS "unit;battery;analysis")
+set_tests_properties(unit.compare  PROPERTIES LABELS "unit;compare;analysis")
 set_tests_properties(integration.demo_floodfill PROPERTIES LABELS "integration" TIMEOUT 900)
 set_tests_properties(unit.watchdog PROPERTIES LABELS "unit;host" TIMEOUT 30)
 

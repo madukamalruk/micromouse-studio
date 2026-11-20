@@ -62,6 +62,12 @@ const std::vector<Field<RobotConfig>>& fields() {
         O("imu.accel_noise_mps2", c.imu.accel_noise_mps2, Rule::NonNegative),
         O("imu.accel_quant_mps2", c.imu.accel_quant_mps2, Rule::NonNegative),
         O("imu.accel_range_mps2", c.imu.accel_range_mps2, Rule::Positive),
+        O("battery.cells", c.battery.cells, Rule::Positive),
+        O("battery.capacity_mah", c.battery.capacity_mah, Rule::Positive),
+        O("battery.r_int_ohm", c.battery.r_int_ohm, Rule::NonNegative),
+        O("battery.soc0", c.battery.soc0, Rule::Fraction01),
+        O("battery.electronics_a", c.battery.electronics_a, Rule::NonNegative),
+        O("battery.reset_v", c.battery.reset_v, Rule::Positive),
         O("slip.mu", c.slip.mu, Rule::Positive),
         O("slip.long_stiffness_n_per_mps", c.slip.long_stiffness, Rule::Positive),
         O("slip.slip_gradient_deg_per_g", c.slip.slip_gradient_deg_per_g, Rule::NonNegative),
@@ -74,6 +80,7 @@ const std::vector<Flag<RobotConfig>>& flags() {
         {"encoder.invert_left", [](RobotConfig& c) -> bool& { return c.encoder.invert_left; }},
         {"encoder.invert_right", [](RobotConfig& c) -> bool& { return c.encoder.invert_right; }},
         {"slip.enabled", [](RobotConfig& c) -> bool& { return c.slip.enabled; }},
+        {"battery.model", [](RobotConfig& c) -> bool& { return c.battery.model; }},
     };
     return f;
 }

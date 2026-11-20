@@ -329,7 +329,7 @@ void MmsBridge::drive_wheels(double v, double w, double a_ff) {
         const double act = s.wheel_speed[i] * r;
         double volts = kv * vt + ka * a_ff + kp * (vt - act);
         if (std::abs(vt) > 1e-4) volts += std::copysign(ks, vt);
-        world_.set_motor_duty(i, volts / c.battery_voltage);
+        world_.set_motor_duty(i, volts / world_.battery_voltage());
     }
 }
 

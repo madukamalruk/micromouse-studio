@@ -1,0 +1,222 @@
+{
+ "limited": [
+  {
+   "kind": "segment",
+   "segment": 0,
+   "t_s": 0.0,
+   "text": "log segment 0 starts (state ARMED_IDLE)"
+  },
+  {
+   "kind": "bias_valid",
+   "segment": 0,
+   "t_s": 0.2,
+   "text": "gyro bias on"
+  },
+  {
+   "kind": "state",
+   "segment": 0,
+   "t_s": 0.5,
+   "text": "ARMED_IDLE -> RUN"
+  }
+ ],
+ "out": [
+  {
+   "kind": "segment",
+   "segment": 0,
+   "t_s": 0.0,
+   "text": "log segment 0 starts (state ARMED_IDLE)"
+  },
+  {
+   "kind": "bias_valid",
+   "segment": 0,
+   "t_s": 0.2,
+   "text": "gyro bias on"
+  },
+  {
+   "kind": "state",
+   "segment": 0,
+   "t_s": 0.5,
+   "text": "ARMED_IDLE -> RUN"
+  },
+  {
+   "kind": "slip",
+   "segment": 0,
+   "t_s": 0.7,
+   "text": "wheel slip on"
+  },
+  {
+   "kind": "segment",
+   "segment": 1,
+   "t_s": 0.0,
+   "text": "log segment 1 starts (state RUN)"
+  },
+  {
+   "kind": "state",
+   "segment": 1,
+   "t_s": 1.1,
+   "text": "RUN -> FAULT"
+  },
+  {
+   "kind": "fault",
+   "segment": 1,
+   "t_s": 1.1,
+   "text": "fault NONE -> WHEEL STALL"
+  }
+ ],
+ "rows": [
+  {
+   "bias_valid": false,
+   "degraded": false,
+   "fault": 0,
+   "fault_name": "NONE",
+   "segment": 0,
+   "slip": false,
+   "state": 4,
+   "state_name": "ARMED_IDLE",
+   "t_ms": 0
+  },
+  {
+   "bias_valid": false,
+   "degraded": false,
+   "fault": 0,
+   "fault_name": "NONE",
+   "segment": 0,
+   "slip": false,
+   "state": 4,
+   "state_name": "ARMED_IDLE",
+   "t_ms": 100
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 0,
+   "fault_name": "NONE",
+   "segment": 0,
+   "slip": false,
+   "state": 4,
+   "state_name": "ARMED_IDLE",
+   "t_ms": 200
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 0,
+   "fault_name": "NONE",
+   "segment": 0,
+   "slip": false,
+   "state": 4,
+   "state_name": "ARMED_IDLE",
+   "t_ms": 300
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 0,
+   "fault_name": "NONE",
+   "segment": 0,
+   "slip": false,
+   "state": 4,
+   "state_name": "ARMED_IDLE",
+   "t_ms": 400
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 0,
+   "fault_name": "NONE",
+   "segment": 0,
+   "slip": false,
+   "state": 5,
+   "state_name": "RUN",
+   "t_ms": 500
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 0,
+   "fault_name": "NONE",
+   "segment": 0,
+   "slip": false,
+   "state": 5,
+   "state_name": "RUN",
+   "t_ms": 600
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 0,
+   "fault_name": "NONE",
+   "segment": 0,
+   "slip": true,
+   "state": 5,
+   "state_name": "RUN",
+   "t_ms": 700
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 0,
+   "fault_name": "NONE",
+   "segment": 0,
+   "slip": true,
+   "state": 5,
+   "state_name": "RUN",
+   "t_ms": 800
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 0,
+   "fault_name": "NONE",
+   "segment": 1,
+   "slip": false,
+   "state": 5,
+   "state_name": "RUN",
+   "t_ms": 900
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 0,
+   "fault_name": "NONE",
+   "segment": 1,
+   "slip": false,
+   "state": 5,
+   "state_name": "RUN",
+   "t_ms": 1000
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 8,
+   "fault_name": "WHEEL STALL",
+   "segment": 1,
+   "slip": false,
+   "state": 6,
+   "state_name": "FAULT",
+   "t_ms": 1100
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 8,
+   "fault_name": "WHEEL STALL",
+   "segment": 1,
+   "slip": false,
+   "state": 6,
+   "state_name": "FAULT",
+   "t_ms": 1200
+  },
+  {
+   "bias_valid": true,
+   "degraded": false,
+   "fault": 8,
+   "fault_name": "WHEEL STALL",
+   "segment": 1,
+   "slip": false,
+   "state": 6,
+   "state_name": "FAULT",
+   "t_ms": 1300
+  }
+ ]
+}

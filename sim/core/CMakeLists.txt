@@ -10,7 +10,13 @@ add_library(simcore STATIC
     src/world.cpp
     src/rng.cpp
     src/sensors.cpp
-    src/sha256.cpp)
+    src/sha256.cpp
+    analysis/maze_paths.cpp
+    analysis/trajectory.cpp
+    analysis/metrics.cpp
+    analysis/battery.cpp
+    analysis/runs.cpp
+    analysis/report.cpp)
 target_include_directories(simcore PUBLIC "${PROJECT_SOURCE_DIR}")
 target_link_libraries(simcore PRIVATE nlohmann_json::nlohmann_json)
 target_compile_definitions(simcore PRIVATE MMSIM_VERSION="${PROJECT_VERSION}")

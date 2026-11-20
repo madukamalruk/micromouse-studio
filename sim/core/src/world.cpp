@@ -5,6 +5,8 @@
 #include <numbers>
 #include <utility>
 
+#include "sim/core/analysis/battery.hpp"
+
 namespace mmsim::core {
 
 namespace {
@@ -63,11 +65,45 @@ void World::reset() {
     std::fill(emitters_.begin(), emitters_.end(), true);
     accel_body_ = {};
     accel_sum_ = {};
+    duty_[0] = duty_[1] = 0.0;
+    amps_[0] = amps_[1] = 0.0;
+    soc_ = cfg_.battery.soc0;
+    i_bat_ = cfg_.battery.electronics_a;
+    v_bat_ = cfg_.battery.model
+                 ? cfg_.battery.cells * analysis::lipo_ocv(soc_) - cfg_.battery.r_int_ohm * i_bat_
+                 : cfg_.battery_voltage;
+}
+
+double World::armature_current(const RobotConfig& c, double v, double wheel_speed) {
+    return (v - c.motor.ke * c.motor.gear_ratio * wheel_speed) / c.motor.resistance;
+}
+
+double World::charge_used_mah() const {
+    return (cfg_.battery.soc0 - soc_) * cfg_.battery.capacity_mah;
+}
+
+// Pack model, once per substep: currents from the state after the substep; the sagging
+// terminal voltage feeds the next substep (250 us lag, no algebraic loop).
+void World::update_battery(double dt) {
+    double motors = 0.0;
+    for (int i = 0; i < 2; ++i) {
+        amps_[i] = armature_current(cfg_, volts_[i], s_.wheel_speed[i]);
+        motors += duty_[i] * amps_[i];
+    }
+    i_bat_ = cfg_.battery.electronics_a + std::max(0.0, motors);
+    soc_ -= i_bat_ * dt / 3600.0 / (cfg_.battery.capacity_mah / 1000.0);
+    soc_ = std::max(0.0, soc_);
+    if (!cfg_.battery.model) return;
+    v_bat_ = std::max(
+        0.0, cfg_.battery.cells * analysis::lipo_ocv(soc_) - cfg_.battery.r_int_ohm * i_bat_);
+    for (int i = 0; i < 2; ++i)
+        volts_[i] = std::clamp(duty_[i] * v_bat_, -cfg_.motor.max_voltage, cfg_.motor.max_voltage);
 }
 
 void World::set_motor_duty(int side, double duty) {
     duty = std::clamp(duty, -1.0, 1.0);
-    volts_[side & 1] = model_.clamp_voltage(duty * cfg_.battery_voltage);
+    duty_[side & 1] = duty;
+    volts_[side & 1] = model_.clamp_voltage(duty * v_bat_);
 }
 
 void World::step_tick() {
@@ -75,6 +111,7 @@ void World::step_tick() {
     for (int i = 0; i < kSubsteps; ++i) {
         time_us_ += kTickUs / kSubsteps;
         substep(dt);
+        update_battery(dt);
     }
     const double tick = static_cast<double>(kTickUs) * 1e-6;
     accel_body_ = {accel_sum_.x / tick, accel_sum_.y / tick};

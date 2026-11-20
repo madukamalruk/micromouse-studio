@@ -88,6 +88,19 @@ struct SensorConfig {
     double ir_incidence_exp = 1.0;
 };
 
+/// Battery pack (Slice 9.1). model = false: ideal supply at battery_voltage (Slices 3-8
+/// behaviour, bit-identical); SoC and current are still integrated for the gauges.
+/// model = true: V_term = cells * OCV(SoC) - R_int * I_bat drives the motors.
+struct BatteryConfig {
+    bool model = false;
+    double cells = 2.0;
+    double capacity_mah = 450.0;
+    double r_int_ohm = 0.15;
+    double soc0 = 1.0;
+    double electronics_a = 0.105;  // MCU + sensors + emitters, from the pack
+    double reset_v = 6.0;          // MCU brownout / motor-cap margin threshold
+};
+
 /// Physical robot description loaded from config/robots/*.json (PRD F9).
 struct RobotConfig {
     std::string name = "unnamed";
@@ -100,6 +113,7 @@ struct RobotConfig {
     BodyConfig body;
     MotorConfig motor;
     double battery_voltage = 7.4;  // V
+    BatteryConfig battery;
     EncoderConfig encoder;
     ImuConfig imu;
     SlipConfig slip;

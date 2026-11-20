@@ -186,9 +186,9 @@ void Session::sample() {
     const double t = static_cast<double>(world_.time_us()) * 1e-6;
     if (!builtin_[kV]) {
         static constexpr const char* kNames[kBuiltinCount] = {
-            "sim.v",       "sim.w",       "sim.x",       "sim.y",       "sim.theta",
-            "sim.motor_l", "sim.motor_r", "sim.wheel_l", "sim.wheel_r", "sim.beta",
-            "sim.gyro_z",  "sim.enc_l",   "sim.enc_r"};
+            "sim.v",       "sim.w",       "sim.x",       "sim.y",     "sim.theta",  "sim.motor_l",
+            "sim.motor_r", "sim.wheel_l", "sim.wheel_r", "sim.beta",  "sim.gyro_z", "sim.enc_l",
+            "sim.enc_r",   "sim.i_l",     "sim.i_r",     "sim.v_bat", "sim.soc"};
         // Create the channels once (add() needs a sample), then empty them so every
         // built-in channel holds exactly one sample per tick.
         const auto make = [&](const std::string& name) {
@@ -223,6 +223,10 @@ void Session::sample() {
     put(builtin_[kGyroZ], world_.imu().gyro_dps[2]);
     put(builtin_[kEncL], world_.encoder_count(0));
     put(builtin_[kEncR], world_.encoder_count(1));
+    put(builtin_[kIL], world_.motor_current(0));
+    put(builtin_[kIR], world_.motor_current(1));
+    put(builtin_[kVBat], world_.battery_voltage());
+    put(builtin_[kSoc], world_.state_of_charge() * 100.0);
     for (std::size_t ch = 0; ch < dist_ch_.size(); ++ch) {
         const std::uint16_t mm = world_.sensor_distance_mm(static_cast<int>(ch));
         put(dist_ch_[ch], mm == core::kDistanceNone ? std::numeric_limits<double>::quiet_NaN()
@@ -248,7 +252,7 @@ void Session::motor_set_duty(int side, float duty) {
     world_.set_motor_duty(side, duty);
 }
 float Session::battery_voltage() {
-    return static_cast<float>(world_.config().battery_voltage);
+    return static_cast<float>(world_.battery_voltage());
 }
 std::int32_t Session::encoder_count(int side) {
     return world_.encoder_count(side);
