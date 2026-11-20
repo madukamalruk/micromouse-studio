@@ -16,7 +16,6 @@ constexpr Rgba kBodyEdge{150, 200, 255, 255};
 constexpr Rgba kBodyContact{255, 170, 60, 255};
 constexpr Rgba kWheel{20, 22, 26, 255};
 constexpr Rgba kArrow{240, 245, 255, 255};
-constexpr Rgba kTrace{90, 200, 140, 200};
 constexpr Rgba kCrash{255, 90, 60, 255};
 constexpr Rgba kBeamIr{255, 80, 120, 255};
 constexpr Rgba kBeamTof{80, 220, 255, 255};
@@ -42,13 +41,43 @@ void robot_rect(ImDrawList* dl, const Camera& cam, const core::Pose& p, double c
 
 }  // namespace
 
-void PathTrace::add(const core::Pose& p) {
+void PathTrace::add(const core::Pose& p, double speed) {
     if (!pts_.empty()) {
         const auto& b = pts_.back();
         if (std::hypot(p.x - b.x, p.y - b.y) < 0.002) return;
     }
     if (pts_.size() >= kMaxPoints) pts_.erase(pts_.begin(), pts_.begin() + kMaxPoints / 4);
-    pts_.push_back({p.x, p.y});
+    const float v = static_cast<float>(std::fabs(speed));
+    vmax_ = std::max(vmax_, v);
+    pts_.push_back({p.x, p.y, v});
+}
+
+Rgba speed_color(float f) {
+    f = std::clamp(f, 0.0f, 1.0f);
+    // piecewise: 0 blue (60,120,255) -> 0.33 green (60,220,120) -> 0.66 yellow (250,220,60)
+    // -> 1 red (255,70,60)
+    struct K {
+        float t;
+        float r, g, b;
+    };
+    static constexpr K k[] = {
+        {0.0f, 60, 120, 255}, {0.33f, 60, 220, 120}, {0.66f, 250, 220, 60}, {1.0f, 255, 70, 60}};
+    int i = 0;
+    while (i < 2 && f > k[i + 1].t) ++i;
+    const float u = (f - k[i].t) / (k[i + 1].t - k[i].t);
+    auto mix = [u](float a, float b) { return static_cast<std::uint8_t>(a + (b - a) * u); };
+    return {mix(k[i].r, k[i + 1].r), mix(k[i].g, k[i + 1].g), mix(k[i].b, k[i + 1].b), 220};
+}
+
+void draw_ghost(ImDrawList* dl, const Camera& cam, const core::RobotConfig& cfg,
+                const core::Pose& p) {
+    const float ppm = static_cast<float>(cam.pixels_per_metre());
+    const auto& b = cfg.body;
+    robot_rect(dl, cam, p, b.offset_x, 0.0, b.length / 2, b.width / 2, {255, 220, 80, 60},
+               {255, 220, 80, 255}, std::max(1.5f, 0.0015f * ppm));
+    const double L = b.offset_x + b.length / 2.0 - 0.008;
+    dl->AddLine(S(cam, p.x, p.y), S(cam, p.x + L * std::cos(p.theta), p.y + L * std::sin(p.theta)),
+                IM_COL32(255, 220, 80, 255), std::max(1.5f, 0.0025f * ppm));
 }
 
 void draw_robot(ImDrawList* dl, const Camera& cam, const core::World& w, const PathTrace& trace,
@@ -58,12 +87,16 @@ void draw_robot(ImDrawList* dl, const Camera& cam, const core::World& w, const P
     const core::Pose& p = w.drive().pose;
 
     if (opt.show_trace && trace.points().size() >= 2) {
-        std::vector<ImVec2> pts;
-        pts.reserve(trace.points().size() + 1);
-        for (const auto& q : trace.points()) pts.push_back(S(cam, q.x, q.y));
-        pts.push_back(S(cam, p.x, p.y));
-        dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), kTrace.packed(), ImDrawFlags_None,
-                        std::max(1.0f, 0.002f * ppm));
+        const auto& tp = trace.points();
+        const float thick = std::max(1.0f, 0.002f * ppm);
+        const float inv = 1.0f / trace.max_speed();
+        ImVec2 prev = S(cam, tp[0].x, tp[0].y);
+        for (std::size_t i = 1; i < tp.size(); ++i) {
+            const ImVec2 q = S(cam, tp[i].x, tp[i].y);
+            dl->AddLine(prev, q, speed_color(tp[i].speed * inv).packed(), thick);
+            prev = q;
+        }
+        dl->AddLine(prev, S(cam, p.x, p.y), speed_color(tp.back().speed * inv).packed(), thick);
     }
 
     // Sensor beams (behind the body): every ray of the last sample, faded by its weight in

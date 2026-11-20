@@ -8,6 +8,7 @@
 #include "sim/core/maze.hpp"
 #include "sim/core/maze_geometry.hpp"
 #include "sim/core/maze_validate.hpp"
+#include "sim/host/annotations.hpp"
 
 struct ImDrawList;
 
@@ -17,7 +18,8 @@ namespace mmsim::app {
 struct Rgba {
     std::uint8_t r, g, b, a;
     std::uint32_t packed() const {
-        return std::uint32_t(r) | (std::uint32_t(g) << 8) | (std::uint32_t(b) << 16) | (std::uint32_t(a) << 24);
+        return std::uint32_t(r) | (std::uint32_t(g) << 8) | (std::uint32_t(b) << 16) |
+               (std::uint32_t(a) << 24);
     }
 };
 
@@ -25,11 +27,14 @@ namespace colors {
 inline constexpr Rgba kBackground{24, 26, 31, 255};
 inline constexpr Rgba kFloor{36, 39, 46, 255};
 inline constexpr Rgba kGrid{48, 52, 61, 255};
-inline constexpr Rgba kWall{214, 69, 65, 255};     // real wall (mms-style red)
+inline constexpr Rgba kWall{214, 69, 65, 255};  // real wall (mms-style red)
 inline constexpr Rgba kPost{205, 209, 217, 255};
 inline constexpr Rgba kStart{40, 92, 64, 255};
 inline constexpr Rgba kGoal{110, 86, 30, 255};
 inline constexpr Rgba kText{150, 156, 168, 255};
+inline constexpr Rgba kFwText{235, 238, 245, 255};
+inline constexpr Rgba kKnownWall{80, 200, 255, 255};  // firmware map agrees with the maze
+inline constexpr Rgba kWrongWall{255, 200, 40, 255};  // firmware map disagrees
 }  // namespace colors
 
 struct MazeViewOptions {
@@ -37,11 +42,17 @@ struct MazeViewOptions {
     bool show_distances = true;
     bool show_coords = true;
     bool show_start_goal = true;
+    bool show_true_walls = true;   // the real maze walls
+    bool show_fw_colors = true;    // hal_annotate_cell_color fills
+    bool show_fw_text = true;      // hal_annotate_cell_text (replaces the idle BFS distances)
+    bool show_known_walls = true;  // hal_annotate_wall map (mismatches highlighted)
 };
 
-/// Draws the maze (floor, start/goal tint, grid, distances, walls, posts, coordinates).
-void draw_maze(ImDrawList* dl, const Camera& cam, const core::Maze& maze, const core::FloodMap* flood,
-               const core::MazeDims& dims, const MazeViewOptions& opt);
+/// Draws the maze (floor, start/goal tint, firmware cell colours, grid, distances or firmware
+/// text, walls, firmware wall map, posts, coordinates). `ann` may be null (no firmware).
+void draw_maze(ImDrawList* dl, const Camera& cam, const core::Maze& maze,
+               const core::FloodMap* flood, const core::MazeDims& dims, const MazeViewOptions& opt,
+               const host::Annotations* ann = nullptr);
 
 /// CPU-side image, RGBA8, row-major, top-left origin.
 struct Image {

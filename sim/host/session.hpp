@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -14,8 +15,11 @@
 #include "sim/core/maze.hpp"
 #include "sim/core/maze_geometry.hpp"
 #include "sim/core/robot_config.hpp"
+#include "sim/core/sha256.hpp"
 #include "sim/core/world.hpp"
+#include "sim/host/annotations.hpp"
 #include "sim/host/firmware_host.hpp"
+#include "sim/host/telemetry.hpp"
 
 namespace mmsim::host {
 
@@ -30,28 +34,10 @@ struct LedEvent {
     bool on;
 };
 
-struct TelemetrySample {
-    std::int64_t time_us;
-    float value;
-};
-
-/// Per-cell annotations written by the firmware (mms-style colours/text, wall marks).
-struct Annotations {
-    std::map<std::pair<int, int>, char> color;
-    std::map<std::pair<int, int>, std::string> text;
-    struct Wall {
-        int x, y;
-        char dir;
-        bool present;
-    };
-    std::vector<Wall> walls;
-};
-
 /// One simulation run: World (physics) + FirmwareHost (DLL on a fiber) + everything the
 /// firmware reports. Implements the non-timing HAL services. Single-threaded.
 class Session final : public HalBackend {
   public:
-    static constexpr std::size_t kTelemetryHistory = 20000;
     static constexpr std::size_t kMaxLogLines = 10000;
 
     Session(core::Maze maze, core::RobotConfig cfg, core::MazeDims dims = {},
@@ -70,6 +56,10 @@ class Session final : public HalBackend {
 
     void step_tick();
     void run_ms(std::uint32_t ms);
+    /// Deterministic scrub: go to simulated time t_us. Backwards = reset (fresh firmware,
+    /// same seed) + replay; forwards = step. Afterwards the state, recorder and trajectory
+    /// hash equal those of an uninterrupted run that stopped at t_us.
+    void rewind_to(std::int64_t t_us);
 
     FwState state() const { return host_.state(); }
     const std::string& error() const { return host_.error(); }
@@ -82,11 +72,17 @@ class Session final : public HalBackend {
     const std::deque<LogLine>& logs() const { return logs_; }
     const std::vector<LedEvent>& led_events() const { return leds_; }
     bool led(int i) const { return i >= 0 && i < 8 && led_state_[i]; }
+    /// Latest value of a channel (firmware or built-in "sim.*").
     std::optional<float> telemetry_value(const std::string& channel) const;
-    const std::map<std::string, std::deque<TelemetrySample>>& telemetry() const {
-        return telemetry_;
-    }
+    /// Bounded recorder: built-in channels every tick + firmware hal_telemetry channels.
+    const TelemetryRecorder& recorder() const { return rec_; }
     const Annotations& annotations() const { return ann_; }
+
+    /// SHA-256 over every tick's (time, pose, wheel angles) since load/reset: two runs with
+    /// equal hashes followed bit-identical trajectories.
+    std::string trajectory_hash() const { return traj_.hex(); }
+    /// SHA-256 of the loaded firmware DLL file (empty if none).
+    const std::string& firmware_hash() const { return fw_hash_; }
 
   private:
     // HalBackend
@@ -109,6 +105,24 @@ class Session final : public HalBackend {
     void annotate_clear() override;
 
     void clear_outputs();
+    void sample();
+
+    enum Builtin {
+        kV,
+        kW,
+        kX,
+        kY,
+        kTheta,
+        kMotorL,
+        kMotorR,
+        kWheelL,
+        kWheelR,
+        kBeta,
+        kGyroZ,
+        kEncL,
+        kEncR,
+        kBuiltinCount
+    };
 
     core::World world_;
     FirmwareHost host_;
@@ -116,8 +130,12 @@ class Session final : public HalBackend {
     bool led_state_[8] = {};
     std::deque<LogLine> logs_;
     std::vector<LedEvent> leds_;
-    std::map<std::string, std::deque<TelemetrySample>> telemetry_;
+    TelemetryRecorder rec_;
+    std::array<TelemetryChannel*, kBuiltinCount> builtin_{};
+    std::vector<TelemetryChannel*> dist_ch_;
     Annotations ann_;
+    core::Sha256 traj_;
+    std::string fw_hash_;
 };
 
 enum class GuardResult { Completed, Hung };

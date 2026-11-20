@@ -4,7 +4,7 @@ target_include_directories(mmsim_camera PUBLIC "${PROJECT_SOURCE_DIR}")
 mmsim_set_warnings(mmsim_camera)
 
 # GUI pieces (ImGui draw lists, screenshots).
-add_library(mmsim_applib STATIC maze_view.cpp robot_view.cpp screenshot.cpp)
+add_library(mmsim_applib STATIC maze_view.cpp robot_view.cpp screenshot.cpp telemetry_view.cpp)
 target_link_libraries(mmsim_applib PUBLIC mmsim_camera simcore mmsim_host imgui_bundle PRIVATE stb_headers)
 mmsim_set_warnings(mmsim_applib)
 

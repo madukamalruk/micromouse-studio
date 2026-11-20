@@ -84,15 +84,15 @@ void solve(const Maze& maze, const char* name, std::uint64_t seed = 1,
     // Ends in a goal cell.
     CHECK(maze.is_goal(cell_of(s.world().drive().pose, s.world().dims())));
     // Every wall the firmware mapped (its annotations, last word per wall) matches the maze.
-    std::map<std::tuple<int, int, char>, bool> mapped;
-    for (const auto& w : s.annotations().walls) mapped[{w.x, w.y, w.dir}] = w.present;
-    int wrong = 0;
-    for (const auto& [k, present] : mapped) {
-        const auto [x, y, dc] = k;
-        const Dir d = dc == 'n' ? Dir::N : dc == 'e' ? Dir::E : dc == 's' ? Dir::S : Dir::W;
-        if (maze.has_wall(x, y, d) != present) ++wrong;
-    }
-    CHECK(mapped.size() > 40);
+    int mapped = 0, wrong = 0;
+    for (int x = 0; x < maze.width(); ++x)
+        for (int y = 0; y < maze.height(); ++y)
+            for (Dir d : {Dir::N, Dir::E, Dir::S, Dir::W})
+                if (const auto k = s.annotations().wall(x, y, d)) {
+                    ++mapped;
+                    if (maze.has_wall(x, y, d) != *k) ++wrong;
+                }
+    CHECK(mapped > 40);
     CHECK(wrong == 0);
     // Mission goals reported with LEDs.
     CHECK(s.led_events().size() >= 8);

@@ -171,12 +171,12 @@ Expected: integration tests print search/return/speed-run times and pass; real-t
 ---
 
 ## Slice 6 — Exceeding mms: telemetry, controls, trace, annotations, replay (M)
-- [ ] 6.1 `TelemetryBus`: built-in channels (pose, v, ω, wheel speeds, motor V/I, battery, sensors, encoder counts) + firmware `hal_telemetry` channels; ring buffer (60 s @ 1 kHz).
-- [ ] 6.2 ImPlot panels (dockable): v/ω actual vs setpoint, wheel speeds, motor voltages, PID errors, sensor channels; channel picker; pause-follows-sim; CSV export of visible window.
-- [ ] 6.3 Path trace (colour by speed) + clear on reset; overlay toggles.
-- [ ] 6.4 Controls: play/pause, step 1 tick / 10 ms / until next cell, speed 0.1×–64× + max, reset, reload firmware (hot-reload), maze/config/firmware selectors; keyboard shortcuts.
-- [ ] 6.5 Full mms colour palette + cell text (≤10 chars) + known-wall rendering; idle distance numbers.
-- [ ] 6.6 Deterministic replay: run record (maze hash, config hash, firmware DLL hash, seed) + trajectory SHA-256.
+- [x] 6.1 `TelemetryBus`: built-in channels (pose, v, ω, wheel speeds, motor V/I, battery, sensors, encoder counts) + firmware `hal_telemetry` channels; ring buffer (60 s @ 1 kHz).
+- [x] 6.2 ImPlot panels (dockable): v/ω actual vs setpoint, wheel speeds, motor voltages, PID errors, sensor channels; channel picker; pause-follows-sim; CSV export of visible window.
+- [x] 6.3 Path trace (colour by speed) + clear on reset; overlay toggles.
+- [x] 6.4 Controls: play/pause, step 1 tick / 10 ms / until next cell, speed 0.1×–64× + max, reset, reload firmware (hot-reload), maze/config/firmware selectors; keyboard shortcuts.
+- [x] 6.5 Full mms colour palette + cell text (≤10 chars) + known-wall rendering; idle distance numbers.
+- [x] 6.6 Deterministic replay: run record (maze hash, config hash, firmware DLL hash, seed) + trajectory SHA-256.
 
 **Verify**
 ```powershell
@@ -238,4 +238,5 @@ Slice 1 done (2026-11-20). Slice 2 done (2026-11-20): maze model + `.txt`/`.num`
 Slice 3 done (2026-11-20): HAL v1 + hal_sim, fiber-based lockstep firmware host with DLL reload/faults/watchdog, DC motor + diff-drive model checked against closed-form results, OBB-vs-AABB continuous collision with crash events, robot config JSON, GUI robot view + Run/Log panels, arm-check. Nothing pushed.
 Slice 4 done (2026-11-20): HAL v2 (distance, encoders, 3-axis gyro/accel), raycast IR/ToF sensors with beam profile, rate, latency and seeded noise, encoder/IMU models, linear tyre slip, GUI beam overlay + sensor panel, `--seed`. Nothing pushed.
 Slice 5 done (2026-11-20): demo_floodfill firmware solves UK 1987 (search 42 s, return 34 s, speed run 21 s, 0 crashes) and 6 other mazes; headless harness; GUI pacing 1x-10x/Max exact to 0.01 %. Nothing pushed.
-Next: **Slice 6** — telemetry plots, controls, trace, annotations (incl. cell colours), replay.
+Slice 6 done (2026-11-20): bounded telemetry recorder (17 built-in + firmware channels, 60 s at 1 kHz), ImPlot panels with rolling window / paused zoom and CSV export (`--export-csv`), mms cell colours + firmware text + known-vs-true walls, speed-coloured trace, timeline scrub with ghost robot and deterministic rewind, run record + trajectory SHA-256, speed 0.1x-64x/Max, step until next cell, DLL hot-reload, keyboard shortcuts gated by WantCaptureKeyboard (D9). Motor current/battery channels not added. Nothing pushed.
+Next: smooth (arc) turns in demo_floodfill, tuned with the live plots; then Slice 7.

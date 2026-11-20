@@ -13,6 +13,8 @@
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -22,9 +24,11 @@
 #include "sim/app/maze_view.hpp"
 #include "sim/app/robot_view.hpp"
 #include "sim/app/screenshot.hpp"
+#include "sim/app/telemetry_view.hpp"
 #include "sim/core/maze_io.hpp"
 #include "sim/core/maze_validate.hpp"
 #include "sim/core/robot_config.hpp"
+#include "sim/core/sha256.hpp"
 #include "sim/core/version.hpp"
 #include "sim/host/pacer.hpp"
 #include "sim/host/session.hpp"
@@ -41,11 +45,12 @@ struct Args {
     std::optional<fs::path> root;
     std::optional<std::string> firmware;  // NAME (from the firmware dir) or path to a .dll
     std::optional<fs::path> config;
-    long long run_for_ms = -1;  // simulated time to run before the scripted frames
-    std::uint64_t seed = 1;     // noise seed (same seed + same firmware = same run)
-    double speed = 1.0;         // pacing: 1, 2, 5, 10 or 0 = max
-    double live_for_s = -1.0;   // run the live (paced) loop this long, report, exit
-    int frames = -1;            // -1 = run until closed
+    std::optional<fs::path> export_csv;  // telemetry CSV after --run-for
+    long long run_for_ms = -1;           // simulated time to run before the scripted frames
+    std::uint64_t seed = 1;              // noise seed (same seed + same firmware = same run)
+    double speed = 1.0;                  // pacing: 1, 2, 5, 10 or 0 = max
+    double live_for_s = -1.0;            // run the live (paced) loop this long, report, exit
+    int frames = -1;                     // -1 = run until closed
     bool exit_after = false;
     bool hidden = false;
     bool software = false;
@@ -62,7 +67,8 @@ void print_usage() {
         "  --config FILE        robot config JSON (default config/robots/generic_classic.json)\n"
         "  --run-for T          simulate T (e.g. 3s, 250ms) as fast as possible, then render\n"
         "  --seed N             noise seed (default 1): same seed + firmware = same run\n"
-        "  --speed S            pacing: 1, 2, 5, 10 or max (default 1)\n"
+        "  --export-csv FILE    after --run-for: write all recorded telemetry as CSV\n"
+        "  --speed S            pacing: 0.1 .. 64 or max (default 1)\n"
         "  --live-for T         play paced for T wall seconds, print sim/wall time, exit\n"
         "  --screenshot PNG     save a screenshot of the last frame\n"
         "  --frames N           render N frames\n"
@@ -97,6 +103,11 @@ std::optional<Args> parse_args(int argc, char** argv) {
         } else if (s == "--firmware") {
             if (auto v = next())
                 a.firmware = v;
+            else
+                return std::nullopt;
+        } else if (s == "--export-csv") {
+            if (auto v = next())
+                a.export_csv = v;
             else
                 return std::nullopt;
         } else if (s == "--config") {
@@ -245,7 +256,35 @@ struct AppState {
     double window_wall = 0.0;  // accumulators for the ratio window
     long long window_sim_ms = 0;
     std::uint64_t seed = 1;
+    // Slice 6: telemetry plots, timeline scrub, run record.
+    app::TelemetryView tv;
+    fs::path config_path;
+    std::string config_hash;
+    std::string telemetry_status;
 };
+
+std::string file_sha256(const fs::path& p) {
+    std::ifstream in(p, std::ios::binary);
+    if (!in) return {};
+    const std::string bytes((std::istreambuf_iterator<char>(in)), {});
+    return core::sha256_hex(bytes);
+}
+
+core::Cell cell_of(const core::Pose& p, const core::MazeDims& d) {
+    return {static_cast<int>(std::floor(p.x / d.cell)), static_cast<int>(std::floor(p.y / d.cell))};
+}
+
+/// Rebuilds the speed-coloured path trace from the recorder (after a rewind).
+void rebuild_trace(AppState& st) {
+    st.trace.clear();
+    if (!st.session) return;
+    const auto& r = st.session->recorder();
+    const auto *x = r.channel("sim.x"), *y = r.channel("sim.y"), *v = r.channel("sim.v");
+    if (!x || !y || !v) return;
+    const std::size_t n = std::min({x->size(), y->size(), v->size()});
+    for (std::size_t i = 0; i < n; i += 5)
+        st.trace.add({x->v[i], y->v[i], 0.0}, static_cast<double>(v->v[i]) * 1e-3);
+}
 
 fs::path find_firmware_dir(const fs::path& root) {
     std::vector<fs::path> c;
@@ -283,26 +322,37 @@ void make_session(AppState& st) {
     st.session->set_button(0, st.boot_buttons[0]);
     st.session->set_button(1, st.boot_buttons[1]);
     if (!st.firmware.empty() && !st.session->load(st.firmware)) st.sim_error = st.session->error();
-    st.trace.add(st.session->world().drive().pose);
+    st.trace.add(st.session->world().drive().pose, 0.0);
+    st.tv.scrub = false;
+    st.tv.follow = true;
 }
 
 /// Advances the simulation by `ms` ticks on a guarded worker; a firmware that stops calling
 /// the HAL (endless loop) is detected and abandoned instead of freezing the GUI.
 // Runs `ms` simulated ms, or (budget_s > 0) as many as fit in budget_s of wall time.
 // Returns the simulated ms actually run.
-long long advance(AppState& st, long long ms, double budget_s = 0.0) {
+// until_cell: stop early when the robot enters another maze cell ("step until next cell").
+long long advance(AppState& st, long long ms, double budget_s = 0.0, bool until_cell = false) {
     if (!st.session || (ms <= 0 && budget_s <= 0.0)) return 0;
-    auto pts = std::make_shared<std::vector<core::Pose>>();
+    struct Sample {
+        core::Pose pose;
+        double v;
+    };
+    auto pts = std::make_shared<std::vector<Sample>>();
     auto ran = std::make_shared<long long>(0);
+    const core::MazeDims dims = st.dims;
     const auto r = host::run_guarded(
         st.session,
-        [ms, budget_s, pts, ran](host::Session& s) {
+        [ms, budget_s, pts, ran, until_cell, dims](host::Session& s) {
             const auto t0 = std::chrono::steady_clock::now();
             const long long limit = budget_s > 0.0 ? 10000000 : ms;
+            const core::Cell c0 = cell_of(s.world().drive().pose, dims);
             for (long long i = 0; i < limit; ++i) {
                 s.step_tick();
                 ++*ran;
-                if (s.time_us() % 5000 == 0) pts->push_back(s.world().drive().pose);
+                const auto& d = s.world().drive();
+                if (s.time_us() % 5000 == 0) pts->push_back({d.pose, d.v});
+                if (until_cell && !(cell_of(d.pose, dims) == c0)) break;
                 if (budget_s > 0.0 && i % 16 == 15 &&
                     std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() >=
                         budget_s)
@@ -320,9 +370,38 @@ long long advance(AppState& st, long long ms, double budget_s = 0.0) {
         st.running = false;
         return 0;
     }
-    for (const auto& p : *pts) st.trace.add(p);
-    st.trace.add(st.session->world().drive().pose);
+    for (const auto& p : *pts) st.trace.add(p.pose, p.v);
+    st.trace.add(st.session->world().drive().pose, st.session->world().drive().v);
     return *ran;
+}
+
+/// Deterministic scrub: replays the run from t = 0 to `t_s` (fresh firmware, same seed).
+void rewind_to(AppState& st, double t_s) {
+    if (!st.session) return;
+    const auto t_us = static_cast<std::int64_t>(std::llround(t_s * 1000.0)) * 1000;
+    const auto r = host::run_guarded(
+        st.session, [t_us](host::Session& s) { s.rewind_to(t_us); },
+        std::chrono::milliseconds(5000 + t_us / 1000));
+    if (r == host::GuardResult::Hung) {
+        st.sim_error = "Firmware hung during rewind; session abandoned. Press Reset.";
+        st.session.reset();
+        return;
+    }
+    rebuild_trace(st);
+}
+
+bool export_csv(const host::TelemetryRecorder& rec, const fs::path& out, double t0, double t1,
+                const std::vector<std::string>& channels, std::size_t& rows) {
+    std::error_code ec;
+    if (out.has_parent_path()) fs::create_directories(out.parent_path(), ec);
+    std::ofstream f(out, std::ios::binary);
+    if (!f) return false;
+    rows = host::write_csv(rec, f, t0, t1, channels);
+    return static_cast<bool>(f);
+}
+
+std::string short_hash(const std::string& h) {
+    return h.size() > 16 ? h.substr(0, 16) : h;
 }
 
 void set_running(AppState& st, bool on) {
@@ -362,7 +441,9 @@ const char* dir_name(core::Dir d) {
     return "?";
 }
 
-void build_default_layout(ImGuiID dockspace, ImVec2 size) {
+// with_plots: firmware loaded -> Telemetry beside the maze; else a tab next to Log (the maze
+// keeps its full width).
+void build_default_layout(ImGuiID dockspace, ImVec2 size, bool with_plots) {
     ImGui::DockBuilderRemoveNode(dockspace);
     ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockspace, size);
@@ -371,7 +452,14 @@ void build_default_layout(ImGuiID dockspace, ImVec2 size) {
     ImGuiID right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.26f, nullptr, &centre);
     ImGuiID right_bottom =
         ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
-    ImGuiID bottom = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.22f, nullptr, &centre);
+    ImGuiID bottom = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.16f, nullptr, &centre);
+    if (with_plots) {
+        const ImGuiID plots =
+            ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.48f, nullptr, &centre);
+        ImGui::DockBuilderDockWindow("Telemetry", plots);
+    } else {
+        ImGui::DockBuilderDockWindow("Telemetry", bottom);
+    }
     ImGui::DockBuilderDockWindow("Mazes", left);
     ImGui::DockBuilderDockWindow("Run", right);
     ImGui::DockBuilderDockWindow("Info", right_bottom);
@@ -449,6 +537,20 @@ void ui_info(AppState& st) {
     ImGui::Checkbox("Distances to goal", &st.view.show_distances);
     ImGui::Checkbox("Coordinates", &st.view.show_coords);
     ImGui::Checkbox("Start / goal tint", &st.view.show_start_goal);
+    ImGui::SeparatorText("Overlays");
+    ImGui::Checkbox("True walls", &st.view.show_true_walls);
+    ImGui::SameLine();
+    ImGui::Checkbox("Known walls (firmware)", &st.view.show_known_walls);
+    ImGui::Checkbox("Cell colours", &st.view.show_fw_colors);
+    ImGui::SameLine();
+    ImGui::Checkbox("Cell text", &st.view.show_fw_text);
+    ImGui::Checkbox("Path trace", &st.robot_view.show_trace);
+    ImGui::SameLine();
+    ImGui::Checkbox("Sensor rays", &st.robot_view.show_beams);
+    ImGui::SameLine();
+    ImGui::Checkbox("Crashes", &st.robot_view.show_crashes);
+    ImGui::TextDisabled("Known walls: blue = correct, amber = wrong");
+    ImGui::TextDisabled("Trace colour: blue slow .. red %.2f m/s", st.trace.max_speed());
     if (ImGui::Button("Fit (F)")) st.need_fit = true;
     ImGui::SameLine();
     if (ImGui::Button("Screenshot (F12)")) st.want_screenshot = true;
@@ -498,8 +600,23 @@ void ui_maze(AppState& st) {
     dl->AddRectFilled(origin, {origin.x + avail.x, origin.y + avail.y},
                       app::colors::kBackground.packed());
     if (st.maze)
-        app::draw_maze(dl, st.cam, *st.maze, st.flood ? &*st.flood : nullptr, st.dims, st.view);
-    if (st.session) app::draw_robot(dl, st.cam, st.session->world(), st.trace, st.robot_view);
+        app::draw_maze(dl, st.cam, *st.maze, st.flood ? &*st.flood : nullptr, st.dims, st.view,
+                       st.session ? &st.session->annotations() : nullptr);
+    if (st.session) {
+        app::draw_robot(dl, st.cam, st.session->world(), st.trace, st.robot_view);
+        // Timeline scrub: ghost robot at the recorded pose under the cursor.
+        if (st.tv.scrub) {
+            const auto& r = st.session->recorder();
+            const auto *x = r.channel("sim.x"), *y = r.channel("sim.y"),
+                       *th = r.channel("sim.theta");
+            if (x && y && th) {
+                const double t = st.tv.cursor_t;
+                const core::Pose g{x->value_at(t), y->value_at(t),
+                                   th->value_at(t) * 3.14159265358979323846 / 180.0};
+                if (!std::isnan(g.x)) app::draw_ghost(dl, st.cam, st.session->world().config(), g);
+            }
+        }
+    }
     dl->PopClipRect();
     ImGui::End();
 }
@@ -539,6 +656,14 @@ void ui_run(AppState& st) {
     if (ImGui::Button(st.running ? "Pause (Space)" : "Play (Space)")) set_running(st, !st.running);
     ImGui::SameLine();
     if (ImGui::Button("Reset (R)")) make_session(st);  // fresh World + DLL reload
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    // Hot reload: rescan firmware_bin (a rebuilt DLL), then fresh World + load from disk.
+    if (ImGui::Button("Reload DLL (Ctrl+R)")) {
+        st.firmwares = scan_firmware(st.firmware_dir);
+        make_session(st);
+    }
+    ImGui::BeginDisabled(!have);
     ImGui::TextUnformatted("Step");
     for (int ms : {1, 10, 100}) {
         ImGui::SameLine();
@@ -548,22 +673,35 @@ void ui_run(AppState& st) {
             advance(st, ms);
         }
     }
+    ImGui::SameLine();
+    if (ImGui::Button("Next cell (N)")) {
+        set_running(st, false);
+        advance(st, 5000, 0.0, true);
+    }
     ImGui::EndDisabled();
     ImGui::TextUnformatted("Speed");
-    struct SpeedOpt {
-        const char* label;
-        double speed;
+    ImGui::SameLine();
+    static constexpr double kSpeeds[] = {0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 64, host::Pacer::kMax};
+    auto speed_label = [](double s) {
+        char b[16];
+        if (s <= 0.0)
+            std::snprintf(b, sizeof b, "Max");
+        else
+            std::snprintf(b, sizeof b, "%gx", s);
+        return std::string(b);
     };
-    static constexpr SpeedOpt kSpeeds[] = {
-        {"1x", 1.0}, {"2x", 2.0}, {"5x", 5.0}, {"10x", 10.0}, {"Max", host::Pacer::kMax}};
-    for (const auto& o : kSpeeds) {
-        ImGui::SameLine();
-        if (ImGui::RadioButton(o.label, st.pacer.speed() == o.speed)) {
-            st.pacer.set_speed(o.speed);
-            st.window_wall = 0.0;
-            st.window_sim_ms = 0;
-        }
+    ImGui::SetNextItemWidth(90);
+    if (ImGui::BeginCombo("##speed", speed_label(st.pacer.speed()).c_str())) {
+        for (double o : kSpeeds)
+            if (ImGui::Selectable(speed_label(o).c_str(), st.pacer.speed() == o)) {
+                st.pacer.set_speed(o);
+                st.window_wall = 0.0;
+                st.window_sim_ms = 0;
+            }
+        ImGui::EndCombo();
     }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(+/- keys)");
     if (st.running && st.ratio > 0.0) {
         const bool behind = !st.pacer.is_max() && st.ratio < 0.97 * st.pacer.speed();
         if (behind)
@@ -644,13 +782,14 @@ void ui_run(AppState& st) {
         }
         ImGui::EndTable();
     }
-    ImGui::TextDisabled("Seed %llu", static_cast<unsigned long long>(w.seed()));
-
-    ImGui::Checkbox("Path trace", &st.robot_view.show_trace);
-    ImGui::SameLine();
-    ImGui::Checkbox("Crash marks", &st.robot_view.show_crashes);
-    ImGui::SameLine();
-    ImGui::Checkbox("Sensor beams", &st.robot_view.show_beams);
+    ImGui::SeparatorText("Run record (replay)");
+    ImGui::Text("Maze      %016llx", static_cast<unsigned long long>(w.maze().hash()));
+    ImGui::Text("Config    %s", short_hash(st.config_hash).c_str());
+    ImGui::Text("Firmware  %s", short_hash(s.firmware_hash()).c_str());
+    ImGui::Text("Seed      %llu", static_cast<unsigned long long>(w.seed()));
+    ImGui::Text("Trajectory %s", short_hash(s.trajectory_hash()).c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", s.trajectory_hash().c_str());
+    ImGui::TextDisabled("Same record + same time = same trajectory hash.");
     ImGui::End();
 }
 
@@ -666,6 +805,42 @@ void ui_log(AppState& st) {
             ImGui::SetScrollHereY(1.0f);
     }
     ImGui::EndChild();
+    ImGui::End();
+}
+
+fs::path timestamped(const fs::path& root, const char* prefix, const char* ext) {
+    std::time_t t = std::time(nullptr);
+    char buf[64];
+    std::strftime(buf, sizeof buf, "-%Y%m%d-%H%M%S", std::localtime(&t));
+    return root / "screenshots" / (std::string(prefix) + buf + ext);
+}
+
+void ui_telemetry(AppState& st) {
+    ImGui::Begin("Telemetry");
+    if (!st.session) {
+        ImGui::TextDisabled("No session.");
+        ImGui::End();
+        return;
+    }
+    const auto& rec = st.session->recorder();
+    const double now = static_cast<double>(st.session->time_us()) * 1e-6;
+    if (!st.telemetry_status.empty()) ImGui::TextDisabled("%s", st.telemetry_status.c_str());
+    const app::TelemetryActions a = app::draw_telemetry(st.tv, rec, now, st.running);
+    if (a.export_view || a.export_all) {
+        const fs::path out = timestamped(st.root, "telemetry", ".csv");
+        std::size_t rows = 0;
+        const bool ok =
+            a.export_all ? export_csv(rec, out, -1e300, 1e300, {}, rows)
+                         : export_csv(rec, out, st.tv.view_t0, st.tv.view_t1, st.tv.plotted, rows);
+        st.telemetry_status = ok ? "Saved " + out.string() + " (" + std::to_string(rows) + " rows)"
+                                 : "Could not write " + out.string();
+    }
+    if (a.rewind) {
+        set_running(st, false);
+        rewind_to(st, st.tv.cursor_t);
+        st.tv.scrub = false;
+        st.tv.follow = true;
+    }
     ImGui::End();
 }
 
@@ -716,7 +891,9 @@ int main(int argc, char** argv) {
     ImGui::CreateContext();
     ImPlot::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
+    // No keyboard navigation: with it, Space would also "press" the focused button (double
+    // toggle) and WantCaptureKeyboard would be true whenever a window has focus.
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     const bool scripted = args.frames > 0;
     if (scripted) io.IniFilename = nullptr;  // deterministic layout for scripted runs
     ImGui::StyleColorsDark();
@@ -737,6 +914,8 @@ int main(int argc, char** argv) {
         const fs::path cfg =
             args.config ? *args.config : st.root / "config/robots/generic_classic.json";
         auto r = core::load_robot_config(cfg);
+        st.config_path = cfg;
+        st.config_hash = file_sha256(cfg);
         if (r.ok()) {
             st.robot = *r.config;
         } else {
@@ -784,6 +963,26 @@ int main(int argc, char** argv) {
             for (const auto& l : st.session->logs())
                 std::printf("  log %.3f  %s\n", static_cast<double>(l.time_us) * 1e-6,
                             l.text.c_str());
+            std::printf("record: maze=%016llx config=%s firmware=%s seed=%llu\n",
+                        static_cast<unsigned long long>(w.maze().hash()), st.config_hash.c_str(),
+                        st.session->firmware_hash().c_str(),
+                        static_cast<unsigned long long>(w.seed()));
+            std::printf("record: trajectory=%s (t=%.3f s)\n", st.session->trajectory_hash().c_str(),
+                        static_cast<double>(st.session->time_us()) * 1e-6);
+            if (args.export_csv) {
+                std::size_t rows = 0;
+                if (export_csv(st.session->recorder(), *args.export_csv, -1e300, 1e300, {}, rows)) {
+                    std::printf("csv: %s (%zu rows, %zu channels)\n",
+                                args.export_csv->string().c_str(), rows,
+                                st.session->recorder().channels().size());
+                } else {
+                    std::fprintf(stderr, "error: could not write %s\n",
+                                 args.export_csv->string().c_str());
+                    if (args.exit_after) return 1;
+                }
+            }
+            // Mid-run screenshot: paused, so the plots show the last window.
+            st.tv.follow = true;
         } else {
             std::fprintf(stderr, "error: %s\n", st.sim_error.c_str());
             if (args.exit_after) return 1;
@@ -819,15 +1018,48 @@ int main(int argc, char** argv) {
         const ImGuiViewport* vp = ImGui::GetMainViewport();
         const ImGuiID dockspace = ImGui::GetID("MainDockSpace");
         if (!layout_built && (scripted || !ImGui::DockBuilderGetNode(dockspace)))
-            build_default_layout(dockspace, vp->Size);
+            build_default_layout(dockspace, vp->Size, !st.firmware.empty());
         layout_built = true;
         ImGui::DockSpaceOverViewport(dockspace, vp);
 
         if (ImGui::IsKeyPressed(ImGuiKey_F12, false)) st.want_screenshot = true;
-        if (!io.WantTextInput) {
+        // Shortcuts only when ImGui does not want the keyboard (typing in the maze filter,
+        // an active slider, ...). Keyboard navigation is off, so this is false otherwise.
+        if (!io.WantCaptureKeyboard) {
             if (ImGui::IsKeyPressed(ImGuiKey_Space, false) && st.session)
                 set_running(st, !st.running);
-            if (ImGui::IsKeyPressed(ImGuiKey_R, false)) make_session(st);
+            if (ImGui::IsKeyPressed(ImGuiKey_R, false)) {
+                if (io.KeyCtrl) st.firmwares = scan_firmware(st.firmware_dir);
+                make_session(st);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_N, false) && st.session) {
+                set_running(st, false);
+                advance(st, 5000, 0.0, true);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) && st.session && !st.running)
+                advance(st, io.KeyShift ? 100 : 10);
+            const bool up = ImGui::IsKeyPressed(ImGuiKey_Equal, false) ||
+                            ImGui::IsKeyPressed(ImGuiKey_KeypadAdd, false);
+            const bool down = ImGui::IsKeyPressed(ImGuiKey_Minus, false) ||
+                              ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract, false);
+            if (up || down) {
+                static constexpr double kLadder[] = {0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 64};
+                const double s = st.pacer.is_max() ? 1000.0 : st.pacer.speed();
+                double next = s;
+                if (up) {
+                    next = host::Pacer::kMax;
+                    for (double l : kLadder)
+                        if (l > s + 1e-9) {
+                            next = l;
+                            break;
+                        }
+                } else {
+                    next = kLadder[0];
+                    for (double l : kLadder)
+                        if (l < s - 1e-9) next = l;
+                }
+                st.pacer.set_speed(next);
+            }
         }
         // Pacing: simulated time = speed x wall time (exact over many frames, see Pacer);
         // Max runs as many ticks as fit in a fixed wall budget per frame.
@@ -871,6 +1103,7 @@ int main(int argc, char** argv) {
         ui_run(st);
         ui_info(st);
         ui_log(st);
+        ui_telemetry(st);
 
         const std::string title =
             "MMSim " + std::string(core::version()) +
