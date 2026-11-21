@@ -4,7 +4,7 @@
 
 namespace mmsim::app {
 
-enum class Cue { Goal, Crash, Done };
+enum class Cue { Goal, Crash, Done, Tick, TimeUp };
 
 class Audio {
   public:

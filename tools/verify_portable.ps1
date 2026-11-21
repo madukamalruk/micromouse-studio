@@ -75,7 +75,8 @@ Test-Check 'mmsim-cli --firmware wallfollower (perfect maze)' ($r.Code -eq 0 -an
 # 3. Contents: no mazefiles content, no state files, no private paths in text files.
 $files = Get-ChildItem $pkg -Recurse -File
 Test-Check 'no external/ or runs/ folder' (-not (Get-ChildItem $pkg -Directory | Where-Object { $_.Name -in 'external', 'runs', 'reports' }))
-Test-Check 'no mmsim.json / imgui.ini' (-not ($files | Where-Object { $_.Name -in 'mmsim.json', 'imgui.ini' }))
+Test-Check 'mmsim.portable marker present' (Test-Path (Join-Path $pkg 'mmsim.portable'))
+Test-Check 'no mmsim.json / imgui.ini'(-not ($files | Where-Object { $_.Name -in 'mmsim.json', 'imgui.ini' }))
 $textHits = $files | Where-Object { $_.Extension -in '.md', '.txt', '.bat', '.json' } |
     Select-String -Pattern 'C:\\Users\\|D:\\Projects|/Users/' -SimpleMatch:$false -ErrorAction SilentlyContinue
 Test-Check 'no private paths in text files' (-not $textHits)

@@ -1,0 +1,8 @@
+// Windows resources of mmsim.exe (configured by CMake): the application icon. Resource id 1 is
+// what SDL and Explorer use for the window, taskbar and file icon.
+//
+// No VERSIONINFO block on purpose: the statically linked libwinpthread already carries one and
+// the linker refuses two VERSION resources (it fails the release link). The version shown in
+// Apps & Features comes from the installer.
+
+1 ICON "@MMSIM_ICON_FILE@"

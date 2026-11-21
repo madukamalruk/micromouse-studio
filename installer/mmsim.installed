@@ -1,0 +1,3 @@
+MMSim installed-copy marker (written by the Windows installer).
+While this file sits next to mmsim.exe the app keeps its settings, runs, reports and
+screenshots in %LOCALAPPDATA%\MMSim so the install folder stays read-only and clean.

@@ -1,7 +1,7 @@
 name: release
 
-# Push a tag such as v0.1.0 to build, test and publish the portable Windows zip as a GitHub
-# Release. Nothing is published from branch pushes or pull requests (see ci.yml for those).
+# Push a tag such as v0.2.0 to build, test and publish the Windows installer (Setup.exe) and the
+# portable zip, each with a .sha256, as a GitHub Release. Nothing is published from branch pushes or pull requests (see ci.yml for those).
 # Third-party actions are pinned to full commit SHAs (the tag is in the comment).
 on:
   push:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build a zip for (artifact only, no release is created)"
+        description: "Existing tag to build the installer and zip for (artifacts only, no release is created)"
         required: true
 
 permissions:
@@ -54,12 +54,27 @@ jobs:
         shell: pwsh
         run: ./tools/package_release.ps1 -Version "$env:TAG" -SoftwareRender
 
+      # Inno Setup 6 is on GitHub's Windows images; install it from Chocolatey only if it is not.
+      - name: Make sure Inno Setup is available
+        shell: pwsh
+        run: |
+          $found = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+            Where-Object { Test-Path $_ }
+          if (-not $found) { choco install innosetup --yes --no-progress }
+
+      # Compiles installer/mmsim.iss over the staged folder: dist/MMSim-<tag>-Setup.exe (+ .sha256).
+      - name: Build the Windows installer
+        shell: pwsh
+        run: ./tools/build_installer.ps1 -Version "$env:TAG"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mmsim-win64
           path: |
             dist/mmsim-*-win64.zip
             dist/mmsim-*-win64.zip.sha256
+            dist/MMSim-*-Setup.exe
+            dist/MMSim-*-Setup.exe.sha256
           if-no-files-found: error
 
   publish:
@@ -81,5 +96,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$TAG" dist/mmsim-*-win64.zip dist/mmsim-*-win64.zip.sha256 \
+          gh release create "$TAG" \
+            dist/MMSim-*-Setup.exe dist/MMSim-*-Setup.exe.sha256 \
+            dist/mmsim-*-win64.zip dist/mmsim-*-win64.zip.sha256 \
             --title "MMSim $TAG" --generate-notes

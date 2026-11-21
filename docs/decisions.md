@@ -118,3 +118,12 @@ Format: date · decision · why · alternatives considered.
 - **GUI:** the firmware menu shows human labels, solvers first, `test_*` fixtures last (Engineer mode only). `mmsim-cli --firmware dijkstra` accepts the short name.
 - **Alternatives:** one DLL with a runtime algorithm switch (breaks "one folder, one firmware" and the hot-reload story); copying the stack into each folder (five copies of the control loop to keep in sync).
 
+
+## D16 - 2026-11-22 · v0.2.0: per-user data, installer, help catalogue, config editor
+- **Where data goes** (`resolve_data_paths`, unit-tested): `--root` or `--portable` / a `mmsim.portable` marker next to the exe keep state beside the exe (the zip); a dev checkout (CMakeLists.txt + firmware/ at the root) keeps writing into the repo; a `mmsim.installed` marker (written by Setup.exe) or an unwritable program folder selects `%LOCALAPPDATA%\MMSim\` (mmsim.json, imgui.ini, runs/, reports/, screenshots/, config/robots/). The installer never writes into the install folder after setup.
+- **Installer:** Inno Setup 6, per-user (`PrivilegesRequired=lowest`, `{localappdata}\Programs\MMSim`, no UAC), Start Menu group, optional Desktop shortcut, Apps & Features uninstaller that asks before deleting `%LOCALAPPDATA%\MMSim` (silent uninstall keeps it). It packs the same staged folder as the portable zip (`tools/package_release.ps1`), minus `Launch_MMSim.bat` and `mmsim.portable`. CI builds both artefacts from one tag and publishes them with sha256 files.
+- **Help text:** one X-macro catalogue (`help_text.def`) so every plot, gauge and technical control has a 1-2 sentence plain-English tooltip; a unit test checks length, ASCII and that every id used exists.
+- **Config editor never overwrites** the bundled `generic_classic.json`: *Apply & Restart* rebuilds the session from the edited values, *Save Copy...* writes a new file under the user folder. Motor `max_voltage` above 6.0 V shows a warning (N20 on a 2S pack: duty = V / V_BAT, never 100 % PWM).
+- **Compass:** bearing = wrap360(90 - theta), clockwise from north; the target tick is the firmware `hdg_target` channel (dir * 90).
+- **Known cosmetic gap:** the VERSIONINFO block of mmsim.exe is overridden by the winpthread resource linked first; the icon resource is unaffected. Installer and Apps & Features show the right version.
+- **Alternatives:** WiX/MSI (heavier, needs admin by default); NSIS (no good built-in modern wizard); always writing next to the exe (breaks under Program Files).

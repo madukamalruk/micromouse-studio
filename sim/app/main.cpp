@@ -25,10 +25,15 @@
 #include "sim/app/screenshot.hpp"
 #include "sim/app/settings.hpp"
 #include "sim/app/theme.hpp"
+#include "sim/app/user_paths.hpp"
 #include "sim/app/widgets.hpp"
 #include "sim/core/robot_config.hpp"
 #include "sim/core/version.hpp"
 #include "sim/platform/window_chrome.hpp"
+
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#include <stb_image.h>
 
 namespace fs = std::filesystem;
 using namespace mmsim;
@@ -60,6 +65,7 @@ struct Args {
     bool software = false;
     bool verify_render = false;
     bool no_session = false;
+    bool portable = false;
     bool seed_given = false, speed_given = false;
     int width = 1280, height = 800;
 };
@@ -89,7 +95,8 @@ void print_usage() {
         "  --hidden             hidden window (with --software for headless checks)\n"
         "  --software           SDL software renderer (diagnostic only; drops thin walls)\n"
         "  --verify-render      pixel-check walls/posts against the maze; exit 1 on mismatch\n"
-        "  --no-session         do not restore/save the last session (mmsim.json, imgui.ini)\n",
+        "  --no-session         do not restore/save the last session (mmsim.json, imgui.ini)\n"
+        "  --portable           keep mmsim.json, runs/, reports/ next to the program\n",
         std::string(core::version()).c_str());
 }
 
@@ -166,6 +173,8 @@ std::optional<Args> parse_args(int argc, char** argv) {
             }
         } else if (s == "--no-session") {
             a.no_session = true;
+        } else if (s == "--portable") {
+            a.portable = true;
         } else if (s == "--live-for") {
             const char* v = next();
             if (!v) return std::nullopt;
@@ -196,6 +205,22 @@ std::optional<Args> parse_args(int argc, char** argv) {
     return a;
 }
 
+#include "sim/app/icon_png.inc"
+
+/// The 64 px window icon (also embedded as resource 1 in mmsim.exe for Explorer and the taskbar).
+void set_window_icon(SDL_Window* window) {
+    int w = 0, h = 0, n = 0;
+    unsigned char* px =
+        stbi_load_from_memory(kIconPng64, static_cast<int>(sizeof kIconPng64), &w, &h, &n, 4);
+    if (!px) return;
+    if (SDL_Surface* surf =
+            SDL_CreateRGBSurfaceWithFormatFrom(px, w, h, 32, w * 4, SDL_PIXELFORMAT_RGBA32)) {
+        SDL_SetWindowIcon(window, surf);
+        SDL_FreeSurface(surf);
+    }
+    stbi_image_free(px);
+}
+
 fs::path exe_dir() {
     fs::path p;
     if (char* base = SDL_GetBasePath()) {
@@ -220,7 +245,7 @@ const char* dockspace_name(ui::Workspace w) {
     return "WS_Cockpit";
 }
 
-void build_layout(ui::Workspace w, ImGuiID id, const ImGuiViewport* vp) {
+void build_layout(ui::Workspace w, ui::Mode mode, ImGuiID id, const ImGuiViewport* vp) {
     ImGui::DockBuilderRemoveNode(id);
     ImGui::DockBuilderAddNode(id, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodePos(id, vp->WorkPos);
@@ -231,22 +256,40 @@ void build_layout(ui::Workspace w, ImGuiID id, const ImGuiViewport* vp) {
     };
     switch (w) {
         case ui::Workspace::Cockpit: {
-            ImGuiID right = split(c, ImGuiDir_Right, 0.29f);
-            ImGuiID sensors = split(right, ImGuiDir_Down, 0.50f);
-            ImGuiID bottom = split(sensors, ImGuiDir_Down, 0.45f);  // maze keeps full height
-            ImGui::DockBuilderDockWindow(win::kMazeCockpit, c);
-            ImGui::DockBuilderDockWindow(win::kFaceplate, right);
-            ImGui::DockBuilderDockWindow(win::kSensors, sensors);
-            ImGui::DockBuilderDockWindow(win::kEvents, bottom);
+            if (mode == ui::Mode::Beginner) {
+                // Plain and roomy: Robot on the left, the maze in the middle, Sensors + Events
+                // right.
+                ImGuiID left = split(c, ImGuiDir_Left, 0.25f);
+                ImGuiID right = split(c, ImGuiDir_Right, 0.34f);
+                ImGuiID events = split(right, ImGuiDir_Down, 0.45f);
+                ImGui::DockBuilderDockWindow(win::kMazeCockpit, c);
+                ImGui::DockBuilderDockWindow(win::kFaceplate, left);
+                ImGui::DockBuilderDockWindow(win::kSensors, right);
+                ImGui::DockBuilderDockWindow(win::kEvents, events);
+            } else {
+                // Engineer: Robot + Attitude compass left, maze centre, Sensors above
+                // Events|Details.
+                ImGuiID left = split(c, ImGuiDir_Left, 0.23f);
+                ImGuiID right = split(c, ImGuiDir_Right, 0.36f);
+                ImGuiID attitude = split(left, ImGuiDir_Down, 0.28f);
+                ImGuiID log = split(right, ImGuiDir_Down, 0.50f);
+                ImGui::DockBuilderDockWindow(win::kMazeCockpit, c);
+                ImGui::DockBuilderDockWindow(win::kFaceplate, left);
+                ImGui::DockBuilderDockWindow(win::kAttitude, attitude);
+                ImGui::DockBuilderDockWindow(win::kSensors, right);
+                ImGui::DockBuilderDockWindow(win::kEvents, log);
+                ImGui::DockBuilderDockWindow(win::kDetails, log);
+            }
             break;
         }
         case ui::Workspace::Studio: {
-            ImGuiID right = split(c, ImGuiDir_Right, 0.38f);
-            ImGuiID deck = split(right, ImGuiDir_Down, 0.70f);
-            ImGuiID insp = split(deck, ImGuiDir_Down, 0.40f);
+            // Maze | overlays (full height) | deck above the cell inspector.
+            ImGuiID right = split(c, ImGuiDir_Right, 0.54f);
+            ImGuiID overlays = split(right, ImGuiDir_Left, 0.46f);
+            ImGuiID insp = split(right, ImGuiDir_Down, 0.42f);
             ImGui::DockBuilderDockWindow(win::kMazeStudio, c);
-            ImGui::DockBuilderDockWindow(win::kOverlays, right);
-            ImGui::DockBuilderDockWindow(win::kTrajectory, deck);
+            ImGui::DockBuilderDockWindow(win::kOverlays, overlays);
+            ImGui::DockBuilderDockWindow(win::kTrajectory, right);
             ImGui::DockBuilderDockWindow(win::kInspector, insp);
             break;
         }
@@ -261,17 +304,21 @@ void build_layout(ui::Workspace w, ImGuiID id, const ImGuiViewport* vp) {
             break;
         }
         case ui::Workspace::Tuning: {
-            ImGuiID left = split(c, ImGuiDir_Left, 0.33f);
-            ImGuiID imu = split(left, ImGuiDir_Down, 0.42f);
-            ImGuiID right = split(c, ImGuiDir_Right, 0.48f);
-            ImGuiID step = split(c, ImGuiDir_Down, 0.40f);
-            ImGuiID record = split(right, ImGuiDir_Down, 0.42f);
-            ImGui::DockBuilderDockWindow(win::kMounts, left);
+            // Four columns: mounts over IMU | battery | robot config | timer over
+            // reports / step response / run record tabs.
+            ImGuiID a = split(c, ImGuiDir_Left, 0.25f);
+            ImGuiID b = split(c, ImGuiDir_Left, 0.34f);
+            ImGuiID d = split(c, ImGuiDir_Right, 0.50f);
+            ImGuiID imu = split(a, ImGuiDir_Down, 0.45f);
+            ImGuiID tabs = split(d, ImGuiDir_Down, 0.48f);
+            ImGui::DockBuilderDockWindow(win::kMounts, a);
+            ImGui::DockBuilderDockWindow(win::kBattery, b);
             ImGui::DockBuilderDockWindow(win::kImu, imu);
-            ImGui::DockBuilderDockWindow(win::kBattery, c);
-            ImGui::DockBuilderDockWindow(win::kStep, step);
-            ImGui::DockBuilderDockWindow(win::kReports, right);
-            ImGui::DockBuilderDockWindow(win::kRecord, record);
+            ImGui::DockBuilderDockWindow(win::kConfig, c);
+            ImGui::DockBuilderDockWindow(win::kTimer, d);
+            ImGui::DockBuilderDockWindow(win::kReports, tabs);
+            ImGui::DockBuilderDockWindow(win::kStep, tabs);
+            ImGui::DockBuilderDockWindow(win::kRecord, tabs);
             break;
         }
     }
@@ -285,6 +332,10 @@ void draw_workspace(AppState& st) {
             panel_faceplate(st);
             panel_sensors(st);
             panel_events(st);
+            if (st.mode == ui::Mode::Engineer) {
+                panel_attitude(st);
+                if (st.details_open) panel_details(st);
+            }
             break;
         case ui::Workspace::Studio:
             panel_maze(st, win::kMazeStudio, CanvasKind::Studio);
@@ -305,6 +356,8 @@ void draw_workspace(AppState& st) {
             panel_step(st);
             panel_reports(st);
             panel_record(st);
+            panel_config(st);
+            panel_timer(st);
             break;
     }
 }
@@ -858,6 +911,7 @@ void register_actions(AppState& st, Audio& audio) {
                if (!m) return std::string("usage: mode <beginner|engineer>");
                s->mode = *m;
                if (*m == ui::Mode::Beginner) s->workspace = ui::Workspace::Cockpit;
+               s->layout_state[static_cast<int>(ui::Workspace::Cockpit)] = 2;  // per-mode layout
                return std::string(*m == ui::Mode::Beginner ? "Beginner mode" : "Engineer mode");
            }});
     r.add({"layout", "", "Workspaces", "Restore the default layout of this workspace", "",
@@ -912,8 +966,9 @@ void register_actions(AppState& st, Audio& audio) {
            }});
     r.add({"report", "", "Analysis", "Save the offline HTML engineering report under reports/",
            "[file]", [s](const auto& a) {
-               const fs::path out =
-                   a.empty() ? timestamped(s->root / "reports", "report", ".html") : fs::path(a[0]);
+               const fs::path out = a.empty()
+                                        ? timestamped(s->user_dir / "reports", "report", ".html")
+                                        : fs::path(a[0]);
                std::string err;
                const bool ok = write_report(*s, out, err);
                s->report_status = ok ? "Saved " + out.string() : err;
@@ -923,7 +978,7 @@ void register_actions(AppState& st, Audio& audio) {
            }});
     r.add({"matlab", "", "Analysis", "Export the MATLAB CSV bundle (wheel log + telemetry)", "",
            [s](const auto&) {
-               const fs::path dir = timestamped(s->root / "reports", "matlab", "");
+               const fs::path dir = timestamped(s->user_dir / "reports", "matlab", "");
                std::string err;
                const bool ok = write_matlab_bundle(*s, dir, err);
                s->report_status = ok ? "Saved " + dir.string() : err;
@@ -933,7 +988,7 @@ void register_actions(AppState& st, Audio& audio) {
            }});
     r.add({"csv", "", "Analysis", "Export every recorded channel as CSV", "", [s](const auto&) {
                if (!s->session) return std::string("No session");
-               const fs::path out = timestamped(s->root / "screenshots", "telemetry", ".csv");
+               const fs::path out = timestamped(s->user_dir / "screenshots", "telemetry", ".csv");
                std::size_t rows = 0;
                const bool ok = export_csv(s->session->recorder(), out, -1e300, 1e300, {}, rows);
                s->report_status =
@@ -942,6 +997,42 @@ void register_actions(AppState& st, Audio& audio) {
                toast(*s, ok ? "CSV saved: " + out.filename().string() : s->report_status,
                      ok ? ui::Tone::Good : ui::Tone::Bad);
                return s->report_status;
+           }});
+    r.add({"timer", "", "Run", "Race timer: start, pause, reset, or a preset (3, 5, 7 minutes)",
+           "<start|pause|reset|3|5|7>", [s](const auto& a) {
+               RaceTimer& t = s->timer;
+               const std::string v = a.empty() ? "" : a[0];
+               if (v == "start") {
+                   t.start();
+                   s->timer_note.clear();
+                   return std::string("Timer running");
+               }
+               if (v == "pause") {
+                   t.pause();
+                   return std::string("Timer paused");
+               }
+               if (v == "reset") {
+                   t.reset();
+                   s->timer_note.clear();
+                   return std::string("Timer reset");
+               }
+               if (v == "3" || v == "5" || v == "7") {
+                   if (t.state() == TimerState::Running || t.state() == TimerState::Paused)
+                       return std::string("Reset the timer before changing its length");
+                   t.set_preset_minutes(std::atoi(v.c_str()));
+                   return "Timer: " + v + " minutes";
+               }
+               return "Timer " + RaceTimer::format(t.remaining_s()) + " left";
+           }});
+    r.add({"details", "", "View", "Show / hide the Move & Firmware Details log, or clear it",
+           "<show|hide|clear>", [s](const auto& a) {
+               const std::string v = a.empty() ? "" : a[0];
+               if (v == "clear") {
+                   clear_details(*s);
+                   return std::string("Details log cleared");
+               }
+               s->details_open = v == "show" ? true : v == "hide" ? false : !s->details_open;
+               return std::string(s->details_open ? "Details log shown" : "Details log hidden");
            }});
     r.add({"mute", "M", "App", "Mute / unmute the goal and crash sounds", "",
            [s, &audio](const auto&) {
@@ -1087,6 +1178,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
         return 1;
     }
+    set_window_icon(window);
     if (interactive) {
         const int display = std::max(0, SDL_GetWindowDisplayIndex(window));
         SDL_Rect usable{};
@@ -1126,12 +1218,24 @@ int main(int argc, char** argv) {
     // Session persistence (F17): layout + last selections under the data root, never for
     // scripted runs (deterministic layout, no files written by tests).
     const bool persist = !scripted && !args.no_session;
-    const fs::path session_root =
-        args.root ? *args.root : find_root_from({exe_dir(), fs::current_path()});
+    PathInputs path_in;
+    if (args.root) path_in.root_arg = *args.root;
+    path_in.portable_flag = args.portable;
+    path_in.exe_dir = exe_dir();
+    path_in.cwd = fs::current_path();
+    if (const char* la = std::getenv("LOCALAPPDATA")) path_in.local_appdata = la;
+    const DataPaths data_paths = resolve_data_paths(path_in);
+    const fs::path session_root = data_paths.root;
+    const fs::path user_dir = data_paths.user_dir;
+    if (user_dir != session_root && !scripted) {
+        std::error_code mk;
+        fs::create_directories(user_dir,
+                               mk);  // %LOCALAPPDATA%\MMSim on the first run of an install
+    }
     static std::string ini_path;
-    ini_path = (session_root / "imgui.ini").string();
+    ini_path = (user_dir / "imgui.ini").string();
     io.IniFilename = persist ? ini_path.c_str() : nullptr;
-    const fs::path settings_file = session_root / "mmsim.json";
+    const fs::path settings_file = user_dir / "mmsim.json";
     AppSettings saved;
     if (persist) {
         std::string serr;
@@ -1163,11 +1267,17 @@ int main(int argc, char** argv) {
 
     AppState st;
     st.root = session_root;
+    st.user_dir = user_dir;
     st.scripted = scripted;
     if (persist) {
         st.boot_buttons[0] = saved.boot_buttons[0];
         st.boot_buttons[1] = saved.boot_buttons[1];
         st.muted = saved.muted;
+        st.timer_audio = saved.timer_audio;
+        st.details_open = saved.details_open;
+        st.timer.set_preset_minutes(saved.timer_minutes);
+        if (saved.layout_version < kLayoutVersion)  // layouts changed in v0.2.0: rebuild once
+            for (int& ls : st.layout_state) ls = 2;
     }
     Audio audio;
     audio.init(!scripted && !args.hidden && args.live_for_s <= 0.0);
@@ -1298,7 +1408,7 @@ int main(int argc, char** argv) {
         const int wi = static_cast<int>(st.workspace);
         if (st.layout_state[wi] != 0) {
             if (st.layout_state[wi] == 2 || scripted || !ImGui::DockBuilderGetNode(dock))
-                build_layout(st.workspace, dock, vp);
+                build_layout(st.workspace, st.mode, dock, vp);
             st.layout_state[wi] = 0;
         }
         ImGui::DockSpaceOverViewport(
@@ -1325,6 +1435,14 @@ int main(int argc, char** argv) {
             }
         }
         if (!scripted) watch_events(st, audio);
+        {
+            const TimerCue cue =
+                update_race(st, scripted ? 0.0 : static_cast<double>(io.DeltaTime));
+            if (!scripted && st.timer_audio) {
+                if (cue == TimerCue::Tick) audio.play(Cue::Tick);
+                if (cue == TimerCue::TimeUp) audio.play(Cue::TimeUp);
+            }
+        }
 
         if (args.live_for_s > 0.0) {
             const double wall = static_cast<double>(now_ticks - live_t0) /
@@ -1368,9 +1486,10 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "error: screenshot capture failed: %s\n", SDL_GetError());
                 exit_code = 1;
             } else {
-                const fs::path out = (last_scripted && args.screenshot)
-                                         ? *args.screenshot
-                                         : timestamped(st.root / "screenshots", "mmsim", ".png");
+                const fs::path out =
+                    (last_scripted && args.screenshot)
+                        ? *args.screenshot
+                        : timestamped(st.user_dir / "screenshots", "mmsim", ".png");
                 if (args.screenshot || st.want_screenshot) {
                     if (write_png(out, img)) {
                         if (!scripted)
@@ -1422,6 +1541,10 @@ int main(int argc, char** argv) {
         now.workspace = ui::workspace_id(st.workspace);
         now.mode = ui::mode_id(st.mode);
         now.muted = st.muted;
+        now.layout_version = kLayoutVersion;
+        now.timer_audio = st.timer_audio;
+        now.details_open = st.details_open;
+        now.timer_minutes = st.timer.preset_minutes();
         std::string serr;
         if (!save_settings(settings_file, now, serr))
             std::fprintf(stderr, "warning: %s\n", serr.c_str());

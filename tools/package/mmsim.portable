@@ -1,0 +1,3 @@
+MMSim portable marker.
+While this file sits next to mmsim.exe the app keeps its settings, runs, reports and
+screenshots in this folder instead of %LOCALAPPDATA%\MMSim. Delete it to use the per-user folder.

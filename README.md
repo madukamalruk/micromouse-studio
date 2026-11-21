@@ -60,16 +60,27 @@ take on the way back, and neither wins everywhere (see D15 in [docs/decisions.md
 
 ## Quick start
 
+### Windows installer (recommended, Windows 10/11, no admin rights)
+
+1. Download `MMSim-v0.2.0-Setup.exe` from the
+   [Releases page](https://github.com/madukamalruk/micromouse-studio/releases) and run it.
+2. Accept the MIT licence, keep the default folder (`%LOCALAPPDATA%\Programs\MMSim`, no UAC
+   prompt) and tick the Desktop shortcut if you want one.
+3. Start **Micromouse Studio**, then press **GO** (or Space).
+
+Your settings, runs, reports and screenshots live in `%LOCALAPPDATA%\MMSim\`, so the install
+folder stays clean. Uninstall from *Settings > Apps*; the uninstaller asks whether to keep that data.
+
 ### Portable zip (Windows 10/11, no installer, no toolchain)
 
-1. Download `mmsim-v0.1.0-win64.zip` from the
-   [Releases page](https://github.com/madukamalruk/micromouse-studio/releases) and unzip it anywhere.
+1. Download `mmsim-v0.2.0-win64.zip` from the same page and unzip it anywhere.
 2. Double-click `Launch_MMSim.bat`, then press **GO** (or Space).
 3. Pick a solver in the *Firmware* menu and a maze in the *Maze* menu.
 
 The zip holds `mmsim.exe`, `mmsim-cli.exe`, the five solver DLLs and a few original test mazes.
-It has no runtime dependencies besides `SDL2.dll` (included). The large classic maze collection
-is not redistributed: see [Optional maze data](#optional-maze-data).
+It has no runtime dependencies besides `SDL2.dll` (included). The `mmsim.portable` marker keeps
+all state next to the exe. The large classic maze collection is not redistributed: see
+[Optional maze data](#optional-maze-data).
 
 ### From source
 
@@ -90,7 +101,8 @@ build/dev/sim/app/mmsim.exe --maze mazes/test/gen16_loops_a.txt --firmware demo_
 ```
 
 Build your own portable zip with `tools/package_release.ps1` (release build, tests, zip, and a
-check that it runs with the toolchain removed from `PATH`).
+check that it runs with the toolchain removed from `PATH`), and the installer with
+`tools/build_installer.ps1` (needs [Inno Setup 6](https://jrsoftware.org/isinfo.php); output in `dist/`).
 
 ### Optional maze data
 

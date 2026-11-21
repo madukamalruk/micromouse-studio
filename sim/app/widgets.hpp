@@ -4,6 +4,7 @@
 
 #include <string>
 
+#include "sim/app/help_text.hpp"
 #include "sim/app/palette.hpp"
 #include "sim/app/ui_logic.hpp"
 
@@ -30,6 +31,17 @@ bool action_button(const char* label, Tone tone, bool disabled = false, float mi
 void value_row(const char* label, const char* fmt, ...);
 /// Section heading with a hairline (SeparatorText in the UI font, muted).
 void section(const char* title);
+/// Same, with a (?) tooltip right after the title.
+void section(const char* title, Help h);
+/// "(?)" after the previous item on the same line; hover shows the plain-English tooltip.
+/// frame_aligned: the previous item is a framed widget (checkbox, drag field): centre vertically.
+void help(Help h, bool frame_aligned = false);
+/// A (?) hotspot drawn at a screen position with no layout item (inside plots/subplots).
+void help_hotspot(float screen_x, float screen_y, Help h);
+/// Muted label with a (?) + right-aligned mono value.
+void value_row(Help h, const char* label, const char* fmt, ...);
+/// `s` shortened with "..." so it fits max_w pixels in the current font.
+std::string ellipsize(const std::string& s, float max_w);
 /// Wrapped muted help text.
 void hint(const char* text);
 

@@ -12,7 +12,10 @@
 
 #include "sim/app/actions.hpp"
 #include "sim/app/camera.hpp"
+#include "sim/app/config_edit.hpp"
+#include "sim/app/details_log.hpp"
 #include "sim/app/maze_view.hpp"
+#include "sim/app/race_timer.hpp"
 #include "sim/app/robot_view.hpp"
 #include "sim/app/telemetry_view.hpp"
 #include "sim/app/ui_logic.hpp"
@@ -51,8 +54,18 @@ struct MountEdit {
     float beam_deg = 10.0f;
 };
 
+/// Cursors into the session's logs/crashes/recorder so the details log only ingests new data.
+struct DetailsSync {
+    const host::Session* session = nullptr;
+    std::size_t logs = 0, crashes = 0;
+    double last_t = -1.0;
+    // Run milestones read from the firmware log (for the attempt table).
+    double goal_t = -1.0, speed0_t = -1.0, speed1_t = -1.0;
+};
+
 struct AppState {
-    std::filesystem::path root;
+    std::filesystem::path root;      // read-only data: mazes/, config/, external/
+    std::filesystem::path user_dir;  // writable state: runs/, reports/, screenshots/, configs
     std::vector<MazeGroup> library;
     char filter[64] = "";
 
@@ -135,6 +148,31 @@ struct AppState {
     std::size_t seen_logs = 0;
     std::size_t seen_crashes = 0;
 
+    // v0.2.0: Move & Firmware Details log (Cockpit, Engineer)
+    DetailsLog details;
+    MoveTracker tracker;
+    DetailsSync dsync;
+    DetailFilter details_filter = DetailFilter::All;
+    char details_search[64] = "";
+    bool details_autoscroll = true;
+
+    // v0.2.0: Robot config editor (Tuning)
+    ConfigEdit cfg_edit;
+    bool cfg_loaded = false;
+    std::string cfg_status;
+    char cfg_name[64] = "";
+    std::vector<std::filesystem::path> cfg_files;  // robot configs found (data + user folders)
+
+    // v0.2.0: race timer + attempts (Tuning)
+    RaceTimer timer;
+    AttemptTable attempts;
+    bool timer_with_go = true;
+    bool timer_audio = true;
+    bool details_open = true;       // the Details tab (close x on the tab, reopen from Events)
+    bool config_edited = false;     // the live config differs from its file (Apply & Restart)
+    bool attempt_recorded = false;  // the current run already has its row
+    std::string timer_note;         // "Run finished at 1:23.4", "Time is up"
+
     Camera& cam() { return cams[static_cast<int>(workspace)]; }
 };
 
@@ -160,6 +198,17 @@ bool export_csv(const host::TelemetryRecorder& rec, const std::filesystem::path&
 std::filesystem::path timestamped(const std::filesystem::path& dir, const char* prefix,
                                   const char* ext);
 std::string now_stamp();  // "2026-11-20 14:03:12"
+
+/// v0.2.0 run diary: ingests new recorder samples, firmware/solver log lines and crashes.
+void sync_details(AppState& st);
+void clear_details(AppState& st);  // "Clear" button: empties the list, keeps the cursors
+/// Race timer + attempt table, once per frame. Returns the audio cue to play (if any).
+TimerCue update_race(AppState& st, double dt_real_s);
+void record_attempt(AppState& st, const char* note);  // adds a row for the current run (if any)
+/// Robot configs under <root>/config/robots and <user_dir>/config/robots, sorted.
+std::vector<std::filesystem::path> scan_robot_configs(const AppState& st);
+/// Loads a robot config as the active one and restarts the run. Returns the error ("" = ok).
+std::string use_robot_config(AppState& st, const std::filesystem::path& path);
 
 void toast(AppState& st, std::string text, ui::Tone tone = ui::Tone::Neutral);
 const char* source_label(const AppState& st);  // firmware stem / solver name / "No firmware"

@@ -351,6 +351,7 @@ void panel_maze(AppState& st, const char* window, CanvasKind kind) {
             ui::pill(st.run_b ? "Ghost: archived run B (amber)"
                               : "No run B: save or pick one in Run compare",
                      st.run_b ? ui::Tone::Warn : ui::Tone::Neutral, false);
+            ui::help(Help::GhostReplay);
         } else if (kind == CanvasKind::Studio && st.show_route && !iso) {
             ImGui::SetCursorScreenPos({origin.x + 12.0f, origin.y + 8.0f});
             ui::pill("Orthogonal", ui::Tone::Active, false);

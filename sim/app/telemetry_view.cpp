@@ -29,6 +29,7 @@ struct PlotSpec {
     const char* unit;
     std::vector<std::string> channels;  // missing channels are skipped
     std::string prefix;                 // or: every channel starting with prefix
+    Help help;                          // (?) in the plot's corner
 };
 
 /// Min/max decimation of the visible samples: spikes survive however far you zoom out.
@@ -86,6 +87,7 @@ TelemetryActions draw_telemetry(TelemetryView& v, const host::TelemetryRecorder&
         const unsigned bit = 1u << i;
         if (ui::pill_toggle(group_names[i], (v.groups & bit) != 0)) v.groups ^= bit;
     }
+    ui::help(Help::TelemetryGroups);
     {
         const float w = ImGui::GetFontSize() * 9.0f;
         ui::flow(w);
@@ -94,15 +96,18 @@ TelemetryActions draw_telemetry(TelemetryView& v, const host::TelemetryRecorder&
         if (ImGui::DragFloat("##window", &win, 0.05f, 0.5f, 60.0f, "window %.1f s",
                              ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic))
             v.window_s = win;
+        ui::help(Help::TelemetryWindow, true);
     }
     ui::flow(ImGui::GetFrameHeight() + ImGui::CalcTextSize("Follow").x + 8.0f);
     if (ImGui::Checkbox("Follow", &v.follow) && v.follow) v.scrub = false;
+    ui::help(Help::TelemetryFollow, true);
     ui::flow(ui::button_width("Export view CSV"));
     if (ImGui::Button("Export view CSV")) act.export_view = true;
     ui::flow(ui::button_width("Export all CSV"));
     if (ImGui::Button("Export all CSV")) act.export_all = true;
     ui::flow(ui::button_width("Channels..."));
     if (ImGui::Button("Channels...")) ImGui::OpenPopup("channels");
+    ui::help(Help::TelemetryExport, true);
     if (ImGui::BeginPopup("channels")) {
         ImGui::TextDisabled("Custom plot channels");
         for (const auto& c : rec.channels()) {
@@ -158,24 +163,32 @@ TelemetryActions draw_telemetry(TelemetryView& v, const host::TelemetryRecorder&
     }
     ImGui::EndDisabled();
     ImGui::EndDisabled();
-    ui::flow(ImGui::CalcTextSize(rec_text).x);
+    ui::flow(ImGui::CalcTextSize(rec_text).x + ImGui::CalcTextSize("(?)").x + st.ItemSpacing.x);
     ImGui::TextDisabled("%s", rec_text);
+    ui::help(Help::TelemetryTimeline);
 
     // --- plots -----------------------------------------------------------------------------
     std::vector<PlotSpec> plots;
     if (v.groups & 1u) {
-        plots.push_back({"Linear velocity", "mm/s", {"v_set", "v", "sim.v"}, ""});
-        plots.push_back({"Angular velocity", "deg/s", {"w_set", "w", "sim.w", "sim.gyro_z"}, ""});
+        plots.push_back({"Linear velocity", "mm/s", {"v_set", "v", "sim.v"}, "", Help::PlotLinear});
+        plots.push_back({"Angular velocity",
+                         "deg/s",
+                         {"w_set", "w", "sim.w", "sim.gyro_z"},
+                         "",
+                         Help::PlotAngular});
     }
     if (v.groups & 2u)
-        plots.push_back({"Steering / PID error", "", {"steer", "fwd_err", "rot_err"}, ""});
+        plots.push_back(
+            {"Steering / PID error", "", {"steer", "fwd_err", "rot_err"}, "", Help::PlotSteering});
     if (v.groups & 4u) {
-        plots.push_back({"Motor voltage", "V", {"sim.motor_l", "sim.motor_r"}, ""});
-        plots.push_back({"Motor current", "A", {"sim.i_l", "sim.i_r"}, ""});
-        plots.push_back({"Battery", "V", {"sim.v_bat"}, ""});
+        plots.push_back(
+            {"Motor voltage", "V", {"sim.motor_l", "sim.motor_r"}, "", Help::PlotMotorVoltage});
+        plots.push_back({"Motor current", "A", {"sim.i_l", "sim.i_r"}, "", Help::PlotMotorCurrent});
+        plots.push_back({"Battery", "V", {"sim.v_bat"}, "", Help::PlotBattery});
     }
-    if (v.groups & 8u) plots.push_back({"Sensor distance", "mm", {}, "sim.d."});
-    if (!v.custom.empty()) plots.push_back({"Custom", "", {v.custom.begin(), v.custom.end()}, ""});
+    if (v.groups & 8u) plots.push_back({"Sensor distance", "mm", {}, "sim.d.", Help::PlotSensors});
+    if (!v.custom.empty())
+        plots.push_back({"Custom", "", {v.custom.begin(), v.custom.end()}, "", Help::PlotCustom});
 
     double x0 = v.view_t0, x1 = v.view_t1;
     if (v.follow) {
@@ -243,7 +256,21 @@ TelemetryActions draw_telemetry(TelemetryView& v, const host::TelemetryRecorder&
                 v.follow = false;
                 v.cursor_t = std::clamp(ImPlot::GetPlotMousePos().x, t_first, t_last);
             }
+            const ImVec2 pp = ImPlot::GetPlotPos(), ps = ImPlot::GetPlotSize();
             ImPlot::EndPlot();
+            // Plot title + (?) in the top-right corner (the legend sits top-left).
+            {
+                const float tw =
+                    ImGui::CalcTextSize(p.title).x + ImGui::CalcTextSize("(?)").x + 10.0f;
+                const float x = pp.x + ps.x - tw - 6.0f;
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    {x - 4.0f, pp.y + 1.0f},
+                    {x + tw + 2.0f, pp.y + 5.0f + ImGui::GetTextLineHeight()},
+                    theme::u32(tok::canvas, 0.75f), 3.0f);
+                ImGui::GetWindowDrawList()->AddText({x, pp.y + 3.0f}, theme::u32(tok::muted),
+                                                    p.title);
+                ui::help_hotspot(x + ImGui::CalcTextSize(p.title).x + 8.0f, pp.y + 3.0f, p.help);
+            }
             first = false;
         }
         ImPlot::EndSubplots();

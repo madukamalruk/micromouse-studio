@@ -65,6 +65,10 @@ bool load_settings(const fs::path& file, AppSettings& out, std::string& error) {
     get(j, "workspace", out.workspace);
     get(j, "mode", out.mode);
     get(j, "muted", out.muted);
+    get(j, "layout_version", out.layout_version);
+    get(j, "timer_audio", out.timer_audio);
+    get(j, "details_open", out.details_open);
+    get(j, "timer_minutes", out.timer_minutes);
     return true;
 }
 
@@ -83,6 +87,10 @@ bool save_settings(const fs::path& file, const AppSettings& s, std::string& erro
     j["workspace"] = s.workspace;
     j["mode"] = s.mode;
     j["muted"] = s.muted;
+    j["layout_version"] = s.layout_version;
+    j["timer_audio"] = s.timer_audio;
+    j["details_open"] = s.details_open;
+    j["timer_minutes"] = s.timer_minutes;
     const fs::path tmp = fs::path(file).concat(".tmp");
     {
         std::ofstream f(tmp, std::ios::binary | std::ios::trunc);

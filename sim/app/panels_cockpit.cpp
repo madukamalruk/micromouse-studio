@@ -61,9 +61,13 @@ void panel_faceplate(AppState& st) {
     const auto ms = current_status(st);
     oled(st, ms);
     ui::hint(ms.detail.c_str());
+    if (!beginner) ui::help(Help::OledDisplay);
 
     // LEDs + the two buttons on one row (hold a button = pressed).
-    ui::section(beginner ? "Lights & buttons" : "LEDs & buttons");
+    if (beginner)
+        ui::section("Lights & buttons");
+    else
+        ui::section("LEDs & buttons", Help::Leds);
     const Rgba led_col[] = {tok::good, tok::accent, tok::warn, tok::bad};
     const float fh = ImGui::GetFrameHeight();
     const float r = fh * 0.22f;
@@ -94,11 +98,15 @@ void panel_faceplate(AppState& st) {
         bool changed = ImGui::Checkbox("Hold B0 at boot", &st.boot_buttons[0]);
         ui::flow(ImGui::GetFrameHeight() + ImGui::CalcTextSize("Hold B1 at boot").x + 8.0f);
         changed |= ImGui::Checkbox("Hold B1 at boot", &st.boot_buttons[1]);
+        ui::help(Help::Buttons, true);
         if (changed) make_session(st);
     }
 
     // PWM duty bars (signed, from the centre).
-    ui::section(beginner ? "Motor power" : "Motor PWM duty");
+    if (beginner)
+        ui::section("Motor power");
+    else
+        ui::section("Motor PWM duty", Help::MotorPwm);
     if (st.session) {
         const auto& w = st.session->world();
         const double vb = std::max(0.1, w.battery_voltage());
@@ -115,9 +123,11 @@ void panel_faceplate(AppState& st) {
                 side == 0 ? "##pwm_l" : "##pwm_r", duty, txt, at_cap ? tok::warn : tok::accent,
                 true);
         }
-        if (!beginner)
+        if (!beginner) {
             ImGui::TextDisabled("Cap %.1f V = %.0f %% of the %.2f V pack", cap, 100.0 * cap / vb,
                                 vb);
+            ui::help(Help::MotorCap);
+        }
     } else {
         ui::hint("No session.");
     }
@@ -148,6 +158,7 @@ void panel_sensors(AppState& st) {
     const bool beginner = st.mode == ui::Mode::Beginner;
     const auto& w = st.session->world();
     const auto& ss = w.sensors();
+    if (!beginner) ui::section("Distance sensors", Help::SensorBars);
     static const char* plain[] = {"Left", "Front L", "Front R", "Right"};
     float name_w = 0.0f;
     for (std::size_t ch = 0; ch < ss.size(); ++ch)
@@ -202,7 +213,7 @@ void panel_sensors(AppState& st) {
     }
     if (ss.size() == 0) ui::hint("This robot config has no distance sensors.");
     if (!beginner) {
-        ui::section("IMU & encoders");
+        ui::section("IMU & encoders", Help::ImuEncoders);
         ui::value_row("Gyro z", "%+7.2f deg/s", w.imu().gyro_dps[2]);
         ui::value_row("Accel x / y", "%+6.2f %+6.2f m/s2", w.imu().accel_mps2[0],
                       w.imu().accel_mps2[1]);
@@ -225,9 +236,11 @@ void panel_events(AppState& st) {
         if (i > (beginner ? 1 : 0)) ImGui::SameLine();
         if (ui::pill_toggle(names[i], filter == i)) filter = i;
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Click an event to jump the timeline there.");
+    ui::help(Help::Events);
+    if (!beginner && !st.details_open) {
+        ui::flow(ui::button_width("Open details log"));
+        if (ImGui::Button("Open details log")) st.actions.trigger("details");
+    }
     struct Row {
         double t;
         ui::EventKind kind;

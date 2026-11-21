@@ -120,10 +120,9 @@ void panel_overlays(AppState& st) {
     };
     const L layers[] = {
         {HeatLayer::Off, "Off", "No heatmap"},
-        {HeatLayer::PeakSpeed, "Peak speed", "Fastest speed recorded in each cell"},
-        {HeatLayer::GripUse, "Grip use", "Peak acceleration / (mu g): 100 % = tyres at the limit"},
-        {HeatLayer::Potential, "Turn-weighted potential",
-         "Cost to the goal with turns weighted 0.5 cell: hot = close"}};
+        {HeatLayer::PeakSpeed, "Peak speed", help_text(Help::HeatPeakSpeed)},
+        {HeatLayer::GripUse, "Grip use", help_text(Help::HeatGrip)},
+        {HeatLayer::Potential, "Turn-weighted potential", help_text(Help::HeatPotential)}};
     bool first = true;
     for (const auto& l : layers) {
         if (!first) ui::flow(ui::button_width(l.name));
@@ -145,10 +144,10 @@ void panel_overlays(AppState& st) {
         if (st.heat != HeatLayer::Potential && h.cells.empty())
             ui::hint("Run the firmware to collect motion data for this layer.");
     }
-    ui::section("Route preview");
+    ui::section("Route preview", Help::RoutePreview);
     ImGui::Checkbox("Show planned route", &st.show_route);
     ui::hint("Shortest route on the true maze. Blue = orthogonal moves, amber = diagonal chains.");
-    ui::section("Layers");
+    ui::section("Layers", Help::MazeLayers);
     ImGui::Checkbox("Grid", &st.view.show_grid);
     ImGui::Checkbox("Distances to goal", &st.view.show_distances);
     ImGui::Checkbox("Coordinates", &st.view.show_coords);
@@ -175,14 +174,17 @@ void panel_trajectory(AppState& st) {
     ImGui::DragFloat("##run", &st.run_mms, 5.0f, 200.0f, 3000.0f, "run %.0f mm/s",
                      ImGuiSliderFlags_AlwaysClamp);
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(-1);
+    ImGui::SetNextItemWidth(-ImGui::CalcTextSize("(?)").x - ImGui::GetStyle().ItemSpacing.x * 2.0f);
     ImGui::DragFloat("##acc", &st.accel_mms2, 25.0f, 500.0f, 15000.0f, "accel %.0f mm/s2",
                      ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(half);
+    ui::help(Help::DeckRunAccel, true);
+    ImGui::SetNextItemWidth(half - ImGui::CalcTextSize("(?)").x - ImGui::GetStyle().ItemSpacing.x);
     ImGui::DragFloat("##mu", &st.mu, 0.005f, 0.3f, 1.5f, "tyre mu %.2f",
                      ImGuiSliderFlags_AlwaysClamp);
+    ui::help(Help::DeckMu, true);
     ImGui::SameLine();
     ImGui::Checkbox("Diagonals", &st.diagonals);
+    ui::help(Help::DeckDiagonals, true);
     const auto& plan = studio_plan(st);
     if (!plan.path) {
         ui::pill("No route to the goal", ui::Tone::Bad);
@@ -219,6 +221,8 @@ void panel_trajectory(AppState& st) {
     }
     ImGui::TextDisabled("Corner limit %.0f mm/s at r = %.0f mm (mu g)", t.limit_mms,
                         an::kCornerRmm);
+    ui::help(Help::DeckSummary);
+    ui::section("Move list", Help::DeckTable);
     const ImGuiTableFlags tf = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
                                ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerH;
     if (ImGui::BeginTable("deck", 6, tf, {0, ImGui::GetContentRegionAvail().y})) {
@@ -293,14 +297,15 @@ void panel_inspector(AppState& st) {
                   m.has_wall(x, y, core::Dir::S) ? "S " : "",
                   m.has_wall(x, y, core::Dir::W) ? "W" : "");
     ui::value_row("Walls", "%s", walls[0] ? walls : "none");
-    if (st.flood) ui::value_row("Steps to goal (BFS)", "%d", st.flood->at(x, y));
+    if (st.flood)
+        ui::value_row(Help::InspectorBfs, "Steps to goal (BFS)", "%d", st.flood->at(x, y));
     const auto& plan = studio_plan(st);
     if (!plan.potential.cost.empty()) {
         const double c = plan.potential.cost[static_cast<std::size_t>(y * m.width() + x)];
         if (c >= 0)
-            ui::value_row("Turn-weighted cost", "%.1f", c);
+            ui::value_row(Help::InspectorCost, "Turn-weighted cost", "%.1f", c);
         else
-            ui::value_row("Turn-weighted cost", "no route");
+            ui::value_row(Help::InspectorCost, "Turn-weighted cost", "no route");
     }
     bool on_route = false;
     if (plan.path)
@@ -308,9 +313,10 @@ void panel_inspector(AppState& st) {
     ui::value_row("On planned route", "%s", on_route ? "yes" : "no");
     const auto& h = heat_cache(st);
     if (const auto* hc = heat_at(h, x, y)) {
-        ui::value_row("Peak speed", "%.2f m/s", hc->v_max * 1e-3);
-        ui::value_row("Peak lateral accel", "%.2f g", hc->a_lat_max / an::kGmms2);
-        ui::value_row("Grip use", "%.0f %%",
+        ui::value_row(Help::InspectorPeakSpeed, "Peak speed", "%.2f m/s", hc->v_max * 1e-3);
+        ui::value_row(Help::InspectorLateral, "Peak lateral accel", "%.2f g",
+                      hc->a_lat_max / an::kGmms2);
+        ui::value_row(Help::InspectorGrip, "Grip use", "%.0f %%",
                       100.0 * std::hypot(hc->a_lat_max, hc->a_long_max) / (st.mu * an::kGmms2));
     } else {
         ui::value_row("Visited", "no");
@@ -327,7 +333,8 @@ void panel_inspector(AppState& st) {
         if (m.has_wall(x, y, core::Dir::W)) best = std::min(best, p.x - (x * c + t));
         if (m.has_wall(x, y, core::Dir::E)) best = std::min(best, (x + 1) * c - t - p.x);
     }
-    if (best < 1e8) ui::value_row("Min wall clearance", "%.0f mm", best * 1000.0);
+    if (best < 1e8)
+        ui::value_row(Help::InspectorClearance, "Min wall clearance", "%.0f mm", best * 1000.0);
     if (st.session) {
         const auto& ann = st.session->annotations();
         if (auto it = ann.text.find({x, y}); it != ann.text.end())

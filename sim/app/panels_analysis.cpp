@@ -84,7 +84,7 @@ void panel_telemetry(AppState& st) {
     const double now = static_cast<double>(st.session->time_us()) * 1e-6;
     const TelemetryActions a = draw_telemetry(st.tv, rec, now, st.running);
     if (a.export_view || a.export_all) {
-        const fs::path out = timestamped(st.root / "screenshots", "telemetry", ".csv");
+        const fs::path out = timestamped(st.user_dir / "screenshots", "telemetry", ".csv");
         std::size_t rows = 0;
         const bool ok =
             a.export_all ? export_csv(rec, out, -1e300, 1e300, {}, rows)
@@ -131,6 +131,7 @@ void panel_compare(AppState& st) {
                 load_compare(st, i);
         ImGui::EndCombo();
     }
+    ui::help(Help::CompareRuns, true);
     if (!st.compare_status.empty())
         ImGui::TextColored(theme::v4(tok::bad), "%s", st.compare_status.c_str());
     if (!st.run_b) {
@@ -166,6 +167,7 @@ void panel_compare(AppState& st) {
     ui::pill(b, cmp.delta_t_final_s >= 0 ? ui::Tone::Good : ui::Tone::Bad, true);
     ui::flow(ui::pill_width(cmp.verdict.c_str()));
     ui::pill(cmp.verdict.c_str(), ui::Tone::Active, false);
+    ui::help(Help::CompareChips);
     const auto meta = [&](const char* k) {
         auto it = st.run_b->meta.find(k);
         return it == st.run_b->meta.end() ? std::string("-") : it->second;
@@ -193,12 +195,14 @@ void panel_compare(AppState& st) {
             st.tv.cursor_t = an::interp_at(A.s, A.t, cursor_mm);
             st.tv.scrub = true;
         }
+        const ImVec2 pp = ImPlot::GetPlotPos(), ps = ImPlot::GetPlotSize();
         ImPlot::EndPlot();
+        ui::help_hotspot(pp.x + ps.x - 26.0f, pp.y + 4.0f, Help::CompareDt);
     }
     if (ImPlot::BeginPlot("##vs", {-1, h}, ImPlotFlags_NoMenus)) {
         ImPlot::SetupAxes("distance (mm)", "speed (mm/s)", ImPlotAxisFlags_AutoFit,
                           ImPlotAxisFlags_AutoFit);
-        ImPlot::SetupLegend(ImPlotLocation_NorthEast, ImPlotLegendFlags_Horizontal);
+        ImPlot::SetupLegend(ImPlotLocation_NorthWest, ImPlotLegendFlags_Horizontal);
         ImPlotSpec sa;
         sa.LineColor = theme::v4(tok::accent);
         ImPlot::PlotLine("A (live)", cmp.grid_mm.data(), cmp.v_a.data(),
@@ -211,7 +215,9 @@ void panel_compare(AppState& st) {
             st.tv.cursor_t = an::interp_at(A.s, A.t, cursor_mm);
             st.tv.scrub = true;
         }
+        const ImVec2 pp = ImPlot::GetPlotPos(), ps = ImPlot::GetPlotSize();
         ImPlot::EndPlot();
+        ui::help_hotspot(pp.x + ps.x - 26.0f, pp.y + 4.0f, Help::CompareSpeed);
     }
     ImGui::End();
 }
@@ -230,6 +236,7 @@ void panel_traction(AppState& st) {
                                       : ui::Tone::Good);
     ImGui::SameLine();
     ImGui::TextDisabled("mu %.2f (Studio deck)", mu);
+    ui::help(Help::TractionPeak);
     const ImVec2 av = ImGui::GetContentRegionAvail();
     const float side = std::max(120.0f, std::min(av.x, av.y));
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (av.x - side) * 0.5f));
@@ -237,7 +244,7 @@ void panel_traction(AppState& st) {
         const double lim = std::max(mu * 1.25, 0.2);
         ImPlot::SetupAxes("a_c lateral (g)", "a_long (g)");
         ImPlot::SetupAxesLimits(-lim, lim, -lim, lim, ImPlotCond_Always);
-        ImPlot::SetupLegend(ImPlotLocation_NorthEast);
+        ImPlot::SetupLegend(ImPlotLocation_NorthWest);
         // Friction circle.
         static double cx[129], cy[129];
         for (int i = 0; i <= 128; ++i) {
@@ -256,7 +263,9 @@ void panel_traction(AppState& st) {
         if (!g.a_lat_g.empty())
             ImPlot::PlotScatter("samples", g.a_lat_g.data(), g.a_long_g.data(),
                                 static_cast<int>(g.a_lat_g.size()), sp);
+        const ImVec2 pp = ImPlot::GetPlotPos(), ps = ImPlot::GetPlotSize();
         ImPlot::EndPlot();
+        ui::help_hotspot(pp.x + ps.x - 26.0f, pp.y + 4.0f, Help::Traction);
     }
     if (g.a_lat_g.empty())
         ui::hint(

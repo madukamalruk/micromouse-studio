@@ -35,6 +35,10 @@ inline constexpr const char* kStep = "Step response###step";
 inline constexpr const char* kImu = "IMU noise###imu";
 inline constexpr const char* kReports = "Reports###reports";
 inline constexpr const char* kRecord = "Run record###record";
+inline constexpr const char* kAttitude = "Attitude###attitude";
+inline constexpr const char* kDetails = "Move & Firmware Details###details";
+inline constexpr const char* kConfig = "Robot config###config";
+inline constexpr const char* kTimer = "Race timer###timer";
 }  // namespace win
 
 void panel_maze(AppState& st, const char* window, CanvasKind kind);
@@ -57,6 +61,12 @@ void panel_step(AppState& st);
 void panel_imu(AppState& st);
 void panel_reports(AppState& st);
 void panel_record(AppState& st);
+
+// v0.2.0 (panels_extra.cpp)
+void panel_attitude(AppState& st);  // Cockpit: gyro attitude compass
+void panel_details(AppState& st);   // Cockpit: Move & Firmware Details log
+void panel_config(AppState& st);    // Tuning: live robot config editor
+void panel_timer(AppState& st);     // Tuning: race timer + attempt table
 
 /// Planned route on the true maze (Studio): shortest path, compiled trajectory, potential
 /// field and which moves belong to diagonal (staircase) chains. Cached per maze + options.

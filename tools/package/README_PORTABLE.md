@@ -4,7 +4,8 @@ A real-time software-in-the-loop micromouse simulator. Your robot firmware is pl
 a DLL against a small hardware layer; the simulator runs it in lockstep with the physics, so a
 run is repeatable bit for bit.
 
-No installer and no extra runtime: unzip anywhere and start it. Windows 10 or 11, 64-bit.
+No extra runtime: unzip anywhere and start it (or use the `MMSim-<version>-Setup.exe` installer
+from the same release page). Windows 10 or 11, 64-bit.
 
 ## Start
 
@@ -48,8 +49,16 @@ in `firmware_bin/`. It then shows up in the Firmware menu (Ctrl+R rescans).
 ## Files
 
 `mmsim.exe` (window), `mmsim-cli.exe` (headless batch runner), `SDL2.dll`, `fonts/`,
-`firmware_bin/`, `config/robots/generic_classic.json`, `mazes/test/`. The app writes
-`mmsim.json`, `imgui.ini`, `runs/` and `reports/` next to itself; delete them any time.
+`firmware_bin/`, `config/robots/generic_classic.json`, `mazes/test/`.
+
+## Where your data goes
+
+* **Zip (this folder has a `mmsim.portable` file):** `mmsim.json`, `imgui.ini`, `runs/`,
+  `reports/` and `screenshots/` are written next to `mmsim.exe`; delete them any time.
+* **Installed copy (`mmsim.installed` file):** the same files go to `%LOCALAPPDATA%\MMSim\`,
+  and robot configs saved from the Config editor to `%LOCALAPPDATA%\MMSim\config\robots\`.
+* `--portable` forces the first mode for one run. The bundled `generic_classic.json` is never
+  overwritten: *Save Copy...* writes a new file.
 
 ## Licence
 

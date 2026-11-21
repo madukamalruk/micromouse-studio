@@ -22,7 +22,13 @@ struct AppSettings {
     std::string workspace = "cockpit";
     std::string mode = "engineer";
     bool muted = false;
+    // v0.2.0: layouts changed; a saved session from an older version rebuilds them once.
+    int layout_version = 0;
+    bool timer_audio = true;
+    bool details_open = true;
+    int timer_minutes = 5;
 };
+inline constexpr int kLayoutVersion = 2;
 
 /// Missing file -> defaults, true. Unreadable/corrupt file -> defaults, false + error (the
 /// GUI starts anyway). Unknown keys are ignored; wrong types fall back to the default.

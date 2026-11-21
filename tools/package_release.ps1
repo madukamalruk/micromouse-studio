@@ -4,8 +4,9 @@
 
 .DESCRIPTION
   Produces dist/mmsim-v<version>-win64.zip with mmsim.exe, mmsim-cli.exe, SDL2.dll, fonts/,
-  firmware_bin/demo_*.dll, config/robots/, mazes/test/, Launch_MMSim.bat, README.md, LICENSE,
-  THIRD_PARTY_NOTICES.md and licenses/. Then (unless -SkipVerify) extracts the zip into a
+  firmware_bin/demo_*.dll, config/robots/, mazes/test/, Launch_MMSim.bat, mmsim.portable,
+  README.md, LICENSE, THIRD_PARTY_NOTICES.md and licenses/. The staged folder (dist/mmsim-v<version>-win64/)
+  is also the input of tools/build_installer.ps1. Then (unless -SkipVerify) extracts the zip into a
   fresh temp folder OUTSIDE the repository and runs mmsim.exe and mmsim-cli.exe there with the
   MSYS2 toolchain removed from PATH *for those child processes only* (nothing persistent is
   changed). The mazefiles collection is never bundled: it is fetched on demand with
@@ -94,6 +95,9 @@ Get-ChildItem (Join-Path $root 'mazes\test') -Filter *.txt | ForEach-Object {
 }
 Copy-Required (Join-Path $root 'tools\package\Launch_MMSim.bat') $stage
 Copy-Item (Join-Path $root 'tools\package\README_PORTABLE.md') (Join-Path $stage 'README.md') -Force
+# Marker: "keep everything next to the exe" (settings, runs, reports). The installer drops this
+# file and ships mmsim.installed instead (per-user data in %LOCALAPPDATA%\MMSim).
+Copy-Required (Join-Path $root 'tools\package\mmsim.portable') $stage
 Copy-Required (Join-Path $root 'LICENSE')                $stage
 Copy-Required (Join-Path $root 'THIRD_PARTY_NOTICES.md') $stage
 Copy-Item (Join-Path $root 'licenses') (Join-Path $stage 'licenses') -Recurse -Force

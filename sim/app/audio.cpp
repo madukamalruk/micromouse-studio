@@ -59,6 +59,13 @@ void Audio::play(Cue c) {
         case Cue::Crash:
             tone(s, 180, 90, 0.18, 0.30);
             break;
+        case Cue::Tick:  // race timer: a soft, short click in the last ten seconds
+            tone(s, 1000, 1000, 0.035, 0.10);
+            break;
+        case Cue::TimeUp:
+            tone(s, 440, 440, 0.20, 0.25);
+            tone(s, 330, 330, 0.35, 0.25);
+            break;
     }
     SDL_QueueAudio(dev_, s.data(), static_cast<Uint32>(s.size() * sizeof(float)));
 }

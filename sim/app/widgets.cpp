@@ -100,18 +100,31 @@ bool action_button(const char* label, Tone tone, bool disabled, float min_width)
     return hit && !disabled;
 }
 
+namespace {
+/// The value of a value_row: mono, right-aligned on the label's line; when the label and the
+/// value do not both fit, the value moves to its own line (right-aligned) instead of overlapping.
+void value_at_right(const std::string& v) {
+    ImGui::PushFont(theme::fonts().mono, 0.0f);
+    const float w = ImGui::CalcTextSize(v.c_str()).x;
+    const float right = ImGui::GetWindowContentRegionMax().x;
+    const float label_end = ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x;
+    if (label_end + 8.0f + w > right) {
+        ImGui::SetCursorPosX(std::max(0.0f, right - w));
+    } else {
+        ImGui::SameLine(right - w);
+    }
+    ImGui::TextUnformatted(v.c_str());
+    ImGui::PopFont();
+}
+}  // namespace
+
 void value_row(const char* label, const char* fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     const std::string v = vfmt(fmt, ap);
     va_end(ap);
     ImGui::TextDisabled("%s", label);
-    ImGui::PushFont(theme::fonts().mono, 0.0f);
-    const float w = ImGui::CalcTextSize(v.c_str()).x;
-    const float right = ImGui::GetWindowContentRegionMax().x;
-    ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 8.0f, right - w));
-    ImGui::TextUnformatted(v.c_str());
-    ImGui::PopFont();
+    value_at_right(v);
 }
 
 void section(const char* title) {
@@ -119,6 +132,72 @@ void section(const char* title) {
     ImGui::PushStyleColor(ImGuiCol_Text, theme::v4(tok::muted));
     ImGui::SeparatorText(title);
     ImGui::PopStyleColor();
+}
+
+namespace {
+void help_tooltip(const char* text) {
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 24.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+}  // namespace
+
+void help(Help h, bool frame_aligned) {
+    ImGui::SameLine(0.0f, 5.0f);
+    if (frame_aligned) ImGui::AlignTextToFramePadding();
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::v4(tok::muted));
+    ImGui::TextUnformatted("(?)");
+    ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered()) {
+        // Redraw lit so the hover target is obvious.
+        const ImVec2 a = ImGui::GetItemRectMin();
+        ImGui::GetWindowDrawList()->AddText(a, theme::u32(tok::accent), "(?)");
+        help_tooltip(help_text(h));
+    }
+}
+
+void help_hotspot(float screen_x, float screen_y, Help h) {
+    const ImVec2 size = ImGui::CalcTextSize("(?)");
+    const ImVec2 a{screen_x, screen_y}, b{screen_x + size.x, screen_y + size.y};
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const bool hot = ImGui::IsMouseHoveringRect(a, b) &&
+                     ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows |
+                                            ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    dl->AddText(a, theme::u32(hot ? tok::accent : tok::muted), "(?)");
+    if (hot) help_tooltip(help_text(h));
+}
+
+void section(const char* title, Help h) {
+    ImGui::Dummy({0, 2});
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::v4(tok::muted));
+    ImGui::TextUnformatted(title);
+    ImGui::PopStyleColor();
+    help(h);
+    const ImVec2 r0 = ImGui::GetItemRectMax();
+    const ImVec2 r1 = ImGui::GetItemRectMin();
+    const float y = std::floor((r0.y + r1.y) * 0.5f);
+    const float x0 = r0.x + 8.0f;
+    const float x1 = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+    if (x1 > x0) ImGui::GetWindowDrawList()->AddLine({x0, y}, {x1, y}, theme::u32(tok::hairline));
+}
+
+void value_row(Help h, const char* label, const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    const std::string v = vfmt(fmt, ap);
+    va_end(ap);
+    ImGui::TextDisabled("%s", label);
+    help(h);
+    value_at_right(v);
+}
+
+std::string ellipsize(const std::string& s, float max_w) {
+    if (ImGui::CalcTextSize(s.c_str()).x <= max_w) return s;
+    std::string t = s;
+    while (!t.empty() && ImGui::CalcTextSize((t + "...").c_str()).x > max_w) t.pop_back();
+    return t + "...";
 }
 
 void hint(const char* text) {

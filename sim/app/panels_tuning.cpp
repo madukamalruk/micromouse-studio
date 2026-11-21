@@ -69,6 +69,18 @@ void mount_preview(const AppState& st, float h) {
     ImGui::Dummy({w, h});
 }
 
+/// Width for a full-width widget that leaves room for a "(?)" after it.
+float width_for_help() {
+    return -ImGui::CalcTextSize("(?)").x - ImGui::GetStyle().ItemSpacing.x * 2.0f;
+}
+
+/// A (?) hotspot just after the label of a labeled_bar row that is about to be drawn.
+void bar_label_help(const char* label, Help h) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float ty = p.y + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f;
+    ui::help_hotspot(p.x + ImGui::CalcTextSize(label).x + 5.0f, ty, h);
+}
+
 }  // namespace
 
 void panel_mounts(AppState& st) {
@@ -88,19 +100,23 @@ void panel_mounts(AppState& st) {
         ImGui::End();
         return;
     }
-    mount_preview(st, std::clamp(ImGui::GetContentRegionAvail().y * 0.42f, 110.0f, 200.0f));
-    ImGui::SetNextItemWidth(-1);
+    mount_preview(st, std::clamp(ImGui::GetContentRegionAvail().y * 0.36f, 96.0f, 200.0f));
+    ImGui::SetNextItemWidth(width_for_help());
     ImGui::DragFloat("##front", &st.mounts.front_deg, 0.1f, 0.0f, 30.0f, "Front toe-out %.1f deg",
                      ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(-1);
+    ui::help(Help::MountFront, true);
+    ImGui::SetNextItemWidth(width_for_help());
     ImGui::DragFloat("##side", &st.mounts.side_deg, 0.2f, 20.0f, 90.0f, "Side / diagonal %.1f deg",
                      ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(-1);
+    ui::help(Help::MountSide, true);
+    ImGui::SetNextItemWidth(width_for_help());
     ImGui::DragInt("##rays", &st.mounts.rays, 0.05f, 1, 15, "Ray count %d",
                    ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(-1);
+    ui::help(Help::MountRays, true);
+    ImGui::SetNextItemWidth(width_for_help());
     ImGui::DragFloat("##beam", &st.mounts.beam_deg, 0.1f, 0.0f, 40.0f, "Beam width %.1f deg",
                      ImGuiSliderFlags_AlwaysClamp);
+    ui::help(Help::MountBeam, true);
     if (ui::action_button("Apply & restart run", ui::Tone::Active)) {
         auto& s = st.robot->sensors;
         for (std::size_t i = 0; i < 4; ++i) {
@@ -112,6 +128,7 @@ void panel_mounts(AppState& st) {
         make_session(st);
         toast(st, "Sensor mounts applied; run restarted", ui::Tone::Good);
     }
+    ui::help(Help::MountApply, true);
     ui::flow(ui::button_width("Revert"));
     if (ImGui::Button("Revert")) st.mounts.loaded = false;
     ui::hint(
@@ -141,23 +158,28 @@ void panel_battery(AppState& st) {
     const float lw = ImGui::CalcTextSize("U18 LDO 3.3 V").x + 16.0f;
     char b[64];
     std::snprintf(b, sizeof b, "%.2f V  %.0f %%", vb, soc * 100.0);
+    bar_label_help("Pack", Help::BatteryPack);
     ui::labeled_bar("Pack", lw, "##vbat", static_cast<float>((vb - vempty) / (vfull - vempty)), b,
                     margin < 0.3   ? tok::bad
                     : margin < 0.8 ? tok::warn
                                    : tok::good);
     std::snprintf(b, sizeof b, "%.2f A", std::abs(w.motor_current(0)));
+    bar_label_help("Motor L", Help::BatteryMotorAmps);
     ui::labeled_bar("Motor L", lw, "##il", static_cast<float>(std::abs(w.motor_current(0)) / 2.6),
                     b, tok::accent);
     std::snprintf(b, sizeof b, "%.2f A", std::abs(w.motor_current(1)));
     ui::labeled_bar("Motor R", lw, "##ir", static_cast<float>(std::abs(w.motor_current(1)) / 2.6),
                     b, tok::accent);
-    ui::value_row("Brownout margin", "%+.2f V over %.1f V", margin, bc.reset_v);
-    ui::value_row("Motor cap", "%.1f V = %.0f %% duty", w.config().motor.max_voltage,
+    ui::value_row(Help::BrownoutMargin, "Brownout margin", "%+.2f V over %.1f V", margin,
+                  bc.reset_v);
+    ui::value_row(Help::MotorCap, "Motor cap", "%.1f V = %.0f %% duty",
+                  w.config().motor.max_voltage,
                   100.0 * w.config().motor.max_voltage / std::max(0.1, vb));
-    ui::value_row("Pack current", "%.2f A", w.battery_current());
-    ui::value_row("Charge used", "%.1f of %.0f mAh", w.charge_used_mah(), bc.capacity_mah);
+    ui::value_row(Help::PackCurrent, "Pack current", "%.2f A", w.battery_current());
+    ui::value_row(Help::ChargeUsed, "Charge used", "%.1f of %.0f mAh", w.charge_used_mah(),
+                  bc.capacity_mah);
 
-    ui::section("Regulator junctions (estimate)");
+    ui::section("Regulator junctions (estimate)", Help::Junctions);
     struct J {
         const char* name;
         const char* id;
@@ -180,7 +202,8 @@ void panel_battery(AppState& st) {
         pred = an::battery_run(an::mission_profile(), bc.capacity_mah, bc.r_int_ohm, bc.soc0);
         have = true;
     }
-    ui::value_row("3-run mission min", "%.2f V (%+.2f V margin)", pred.min_v, pred.margin_to_6v0);
+    ui::value_row(Help::MissionMin, "3-run mission min", "%.2f V (%+.2f V margin)", pred.min_v,
+                  pred.margin_to_6v0);
     ImGui::End();
 }
 
@@ -208,6 +231,7 @@ void panel_step(AppState& st) {
     ImGui::SetNextItemWidth(160.0f);
     ImGui::DragFloat("##stepwin", &window_s, 0.01f, 0.1f, 10.0f, "window %.2f s",
                      ImGuiSliderFlags_AlwaysClamp);
+    ui::help(Help::StepSource, true);
     // First step in the recording, then measured inside [start, start + window]: a speed
     // profile's first acceleration is the step, not the whole run.
     const Series all = series(rec, st.step_channel.c_str());
@@ -237,18 +261,19 @@ void panel_step(AppState& st) {
     if (!m.ok()) {
         ui::hint(m.error.c_str());
     } else if (ImGui::BeginTable("stepm", 3, ImGuiTableFlags_SizingStretchSame)) {
-        auto stat = [](const char* l, const char* f, double v, Rgba c) {
+        auto stat = [](const char* l, Help h, const char* f, double v, Rgba c) {
             ImGui::TableNextColumn();
             ImGui::TextDisabled("%s", l);
+            ui::help(h);
             ImGui::PushFont(theme::fonts().mono, theme::kTitleSize);
             char b[32];
             std::snprintf(b, sizeof b, f, v);
             ImGui::TextColored(theme::v4(c), "%s", b);
             ImGui::PopFont();
         };
-        stat("Rise 10-90 %", "%.3f s", m.rise_time_s, tok::text);
-        stat("Settling 2 %", "%.3f s", m.settling_time_s, tok::text);
-        stat("Overshoot", "%.1f %%", m.overshoot_pct,
+        stat("Rise", Help::StepRise, "%.3f s", m.rise_time_s, tok::text);
+        stat("Settling", Help::StepSettling, "%.3f s", m.settling_time_s, tok::text);
+        stat("Overshoot", Help::StepOvershoot, "%.1f %%", m.overshoot_pct,
              m.overshoot_pct > 20  ? tok::bad
              : m.overshoot_pct > 5 ? tok::warn
                                    : tok::good);
@@ -307,12 +332,12 @@ void panel_imu(AppState& st) {
                 still.push_back(g->v[i]);
         }
     const auto s = an::imu_stats(still);
-    ui::value_row("Stationary samples", "%d", s.n);
+    ui::value_row(Help::ImuSamples, "Stationary samples", "%d", s.n);
     if (s.mean) {
-        ui::value_row("Bias (mean)", "%+.3f deg/s", *s.mean);
-        ui::value_row("Noise (1 sigma)", "%.3f deg/s", *s.stddev);
-        ui::value_row("Peak to peak", "%.3f deg/s", *s.p2p);
-        ui::value_row("Configured bias", "%+.3f deg/s",
+        ui::value_row(Help::ImuBias, "Bias (mean)", "%+.3f deg/s", *s.mean);
+        ui::value_row(Help::ImuNoise, "Noise (1 sigma)", "%.3f deg/s", *s.stddev);
+        ui::value_row(Help::ImuPeak, "Peak to peak", "%.3f deg/s", *s.p2p);
+        ui::value_row(Help::ImuConfigured, "Configured bias", "%+.3f deg/s",
                       st.session->world().imu_model().gyro_bias_dps());
         if (ImPlot::BeginPlot("##imuh", {-1, -1}, ImPlotFlags_NoMenus | ImPlotFlags_NoLegend)) {
             ImPlot::SetupAxes("gyro z (deg/s)", "samples", ImPlotAxisFlags_AutoFit,
@@ -322,7 +347,9 @@ void panel_imu(AppState& st) {
             sp.LineColor = theme::v4(tok::accent);
             ImPlot::PlotHistogram("gyro", still.data(), static_cast<int>(still.size()), 40, 1.0,
                                   ImPlotRange(), sp);
+            const ImVec2 pp = ImPlot::GetPlotPos(), ps = ImPlot::GetPlotSize();
             ImPlot::EndPlot();
+            ui::help_hotspot(pp.x + ps.x - 26.0f, pp.y + 4.0f, Help::ImuHistogram);
         }
     } else {
         ui::hint(
@@ -339,6 +366,7 @@ void panel_reports(AppState& st) {
     }
     ui::hint(
         "Offline, printable engineering report (HTML): checks, metrics, plots and the event log.");
+    ui::help(Help::ReportsExport);
     const float bw = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
     if (ui::action_button("Save HTML report", ui::Tone::Active, !st.session, bw))
         st.actions.trigger("report");
@@ -367,17 +395,26 @@ void panel_reports(AppState& st) {
         last = ImGui::GetTime();
     }
     const std::string overall = an::overall_verdict(in.checks);
-    ui::section("Checks");
+    ui::section("Checks", Help::ReportChecks);
     ImGui::TextDisabled("Overall");
     ImGui::SameLine();
     ui::pill(overall.c_str(), overall == "PASS"   ? ui::Tone::Good
                               : overall == "FAIL" ? ui::Tone::Bad
                                                   : ui::Tone::Neutral);
     if (ImGui::BeginTable("checks", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("check", ImGuiTableColumnFlags_WidthStretch, 1.3f);
+        ImGui::TableSetupColumn("verdict", ImGuiTableColumnFlags_WidthFixed,
+                                ImGui::CalcTextSize("NOT MEASURED").x + 10.0f);
+        ImGui::TableSetupColumn("measured", ImGuiTableColumnFlags_WidthStretch, 1.0f);
         for (const auto& c : in.checks) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(c.name.c_str());
+            {
+                const std::string shown = ui::ellipsize(c.name, ImGui::GetContentRegionAvail().x);
+                ImGui::TextUnformatted(shown.c_str());
+                if (shown != c.name && ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", c.name.c_str());
+            }
             ImGui::TableNextColumn();
             const ui::Tone t = c.verdict == "PASS"   ? ui::Tone::Good
                                : c.verdict == "FAIL" ? ui::Tone::Bad
@@ -385,7 +422,13 @@ void panel_reports(AppState& st) {
             ImGui::TextColored(theme::v4(t == ui::Tone::Neutral ? tok::muted : ui::tone_color(t)),
                                "%s", c.verdict.c_str());
             ImGui::TableNextColumn();
-            ui::mono_colored(tok::muted, "%s", c.measured.c_str());
+            {
+                const std::string shown =
+                    ui::ellipsize(c.measured, ImGui::GetContentRegionAvail().x);
+                ui::mono_colored(tok::muted, "%s", shown.c_str());
+                if (shown != c.measured && ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", c.measured.c_str());
+            }
         }
         ImGui::EndTable();
     }
@@ -408,7 +451,7 @@ void panel_record(AppState& st) {
     }
     if (st.session) {
         const auto& s = *st.session;
-        ui::section("Replay record");
+        ui::section("Replay record", Help::RunRecord);
         ui::value_row("Maze hash", "%016llx",
                       static_cast<unsigned long long>(s.world().maze().hash()));
         ui::value_row("Config", "%s", short_hash(st.config_hash).c_str());

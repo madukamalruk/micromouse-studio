@@ -24,7 +24,8 @@ add_executable(mmsim_unit_tests
     unit/test_batch.cpp
     unit/test_settings.cpp
     unit/test_analysis.cpp
-    unit/test_ui_logic.cpp)
+    unit/test_ui_logic.cpp
+    unit/test_v02_logic.cpp)
 # firmware/common planners compiled for the host (pure C, no simulator): unit/test_planners.cpp
 add_library(fw_common_host STATIC
     "${PROJECT_SOURCE_DIR}/firmware/common/maze.c"

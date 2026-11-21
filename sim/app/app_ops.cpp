@@ -7,6 +7,8 @@
 #include <sstream>
 
 #include "sim/app/app_state.hpp"
+#include "sim/app/attitude.hpp"
+#include "sim/app/user_paths.hpp"
 #include "sim/core/analysis/metrics.hpp"
 #include "sim/core/analysis/report.hpp"
 #include "sim/core/maze_io.hpp"
@@ -19,15 +21,7 @@ namespace fs = std::filesystem;
 namespace an = core::analysis;
 
 fs::path find_root_from(const std::vector<fs::path>& starts) {
-    for (fs::path p : starts) {
-        for (int i = 0; i < 8 && !p.empty(); ++i) {
-            std::error_code ec;
-            if (fs::is_directory(p / "mazes", ec)) return p;
-            if (p == p.parent_path()) break;
-            p = p.parent_path();
-        }
-    }
-    return fs::current_path();
+    return find_data_root(starts);
 }
 
 std::vector<MazeGroup> scan_library(const fs::path& root) {
@@ -104,7 +98,12 @@ void rebuild_trace(AppState& st) {
 }
 
 void make_session(AppState& st) {
+    record_attempt(st, "restarted");  // a run that reached the goal but never finished
     st.session.reset();
+    st.details.clear();
+    st.tracker.reset();
+    st.dsync = {};
+    st.attempt_recorded = false;
     st.trace.clear();
     st.running = false;
     st.hung = false;
@@ -201,6 +200,15 @@ void rewind_to(AppState& st, double t_s) {
 
 void set_running(AppState& st, bool on) {
     st.running = on && st.session != nullptr;
+    if (st.timer_with_go) {
+        if (st.running &&
+            (st.timer.state() == TimerState::Idle || st.timer.state() == TimerState::Paused)) {
+            st.timer.start();
+            st.timer_note.clear();
+        } else if (!on && st.timer.state() == TimerState::Running) {
+            st.timer.pause();
+        }
+    }
     st.pacer.reset();
     st.window_wall = 0.0;
     st.window_sim_ms = 0;
@@ -370,13 +378,13 @@ fs::path save_current_run(AppState& st, std::string& err) {
         err = "no run to save";
         return {};
     }
-    const fs::path out = an::save_run(st.root / "runs", archive_current(st), err);
+    const fs::path out = an::save_run(st.user_dir / "runs", archive_current(st), err);
     refresh_archive(st);
     return out;
 }
 
 void refresh_archive(AppState& st) {
-    st.archive = an::list_runs(st.root / "runs");
+    st.archive = an::list_runs(st.user_dir / "runs");
     if (st.compare_b >= static_cast<int>(st.archive.size())) st.compare_b = 0;
 }
 

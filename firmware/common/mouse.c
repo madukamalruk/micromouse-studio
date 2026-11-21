@@ -70,6 +70,7 @@ static void stop_at_centre(float speed, float accel) {
 
 /* Turn in place to a new heading (from a stop). */
 void mouse_face(dir_t d) {
+    hal_telemetry("hdg_target", (float)((int)d * 90)); /* compass bearing, for the Attitude panel */
     const int diff = ((int)d - (int)g_mouse.heading + 4) & 3; /* clockwise quarter turns */
     if (diff == 1) turn(-90.0f);
     if (diff == 2) {
@@ -93,6 +94,7 @@ void mouse_init(void) {
     g_mouse.x = 0;
     g_mouse.y = 0;
     g_mouse.heading = NORTH;
+    hal_telemetry("hdg_target", 0.0f);
 }
 
 /* Called at the boundary of the cell just entered: walls left/front/right of it. */
