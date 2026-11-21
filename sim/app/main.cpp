@@ -1148,6 +1148,7 @@ void print_run_summary(const AppState& st) {
 
 // ---------------------------------------------------------------------------------------------
 int main(int argc, char** argv) {
+    platform::attach_parent_console();  // GUI-subsystem exe: show --help etc. in a parent terminal
     auto parsed = parse_args(argc, argv);
     if (!parsed) {
         print_usage();
