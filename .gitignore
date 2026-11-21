@@ -31,3 +31,4 @@ mmsim.json
 __pycache__/
 *.pyc
 reports/
+dist/

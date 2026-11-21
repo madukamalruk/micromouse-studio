@@ -27,5 +27,5 @@ issue found and corrected in this slice, **Known limit** = real, documented, not
 | 18 | Layout at 1280x720 | Pass | No clipped labels in the top bar or panels; narrow tiers drop the brand and Beginner toggle first. |
 | 19 | Mouse-driven popups (firmware and maze combos, ImGui popups) | Known limit | Not driven with synthetic input here; the menu logic is in `ui_logic` and unit-tested, the rendered states were inspected through scripted screenshots. |
 | 20 | Wall Follower on mazes with a free-standing goal | Known limit | By design: it stops with an error after one loop (see D15). |
-| 21 | Solver parity | Known limit | Flood-Fill, Dijkstra and A* find the same speed-run route on the benchmark mazes; the difference shows on the way back (D15). Trémaux searches far longer on loop-rich mazes. |
+| 21 | Solver parity | Known limit | Flood-Fill, Dijkstra and A* find the same speed-run route on the benchmark mazes; the way-back times differ without a pattern (tie-breaking, untuned turn cost: see D15). Trémaux searches far longer on loop-rich mazes. |
 | 22 | Windows only | Known limit | The platform layer (titlebar) and the mms child-process code are Win32; other platforms are not built. |

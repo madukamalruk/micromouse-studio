@@ -1,0 +1,73 @@
+name: release
+
+# Push a tag such as v0.1.0 to build, test and publish the portable Windows zip as a GitHub
+# Release. Nothing is published from branch pushes or pull requests (see ci.yml for those).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build a zip for (artifact only, no release is created)"
+        required: true
+
+permissions:
+  contents: write # create the release and upload the zip
+
+jobs:
+  windows-package:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-SDL2
+            mingw-w64-ucrt-x86_64-python
+
+      - name: Point the toolchain file at this MSYS2 install
+        shell: msys2 {0}
+        run: echo "MSYS2_ROOT=$(cygpath -m /)" >> "$GITHUB_ENV"
+
+      - name: Check the tag matches the project version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path CMakeLists.txt -Pattern 'project\s*\([^)]*VERSION\s+([0-9][0-9.]*)').Matches[0].Groups[1].Value
+          if ($env:TAG.TrimStart('v') -ne $v) {
+            throw "Tag $env:TAG does not match the CMake project version $v"
+          }
+
+      # Release build, ctest --preset release, zip, then a clean-PATH extraction test.
+      - name: Build, test and package
+        shell: pwsh
+        run: ./tools/package_release.ps1 -Version "$env:TAG" -SoftwareRender
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mmsim-${{ env.TAG }}-win64
+          path: |
+            dist/mmsim-*-win64.zip
+            dist/mmsim-*-win64.zip.sha256
+          if-no-files-found: error
+
+      - name: Publish the GitHub Release
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$env:TAG" `
+            "dist/mmsim-v$($env:TAG.TrimStart('v'))-win64.zip" `
+            "dist/mmsim-v$($env:TAG.TrimStart('v'))-win64.zip.sha256" `
+            --title "MMSim $env:TAG" --generate-notes

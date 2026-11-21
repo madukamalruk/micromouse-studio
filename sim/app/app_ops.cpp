@@ -54,7 +54,10 @@ std::vector<MazeGroup> scan_library(const fs::path& root) {
 
 fs::path find_firmware_dir(const fs::path& root, const fs::path& exe_dir) {
     std::vector<fs::path> c;
-    if (!exe_dir.empty()) c.push_back(exe_dir / "../../firmware_bin");
+    if (!exe_dir.empty()) {
+        c.push_back(exe_dir / "firmware_bin");  // portable package: next to the exe
+        c.push_back(exe_dir / "../../firmware_bin");
+    }
     c.push_back(root / "build/dev/firmware_bin");
     c.push_back(root / "build/release/firmware_bin");
     for (const auto& p : c) {

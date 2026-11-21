@@ -37,8 +37,9 @@ fs::path find_root(const fs::path& exe_dir) {
 }
 
 fs::path find_firmware_dir(const fs::path& exe_dir, const fs::path& root) {
-    for (const fs::path& p : {exe_dir / "../../firmware_bin", root / "build/release/firmware_bin",
-                              root / "build/dev/firmware_bin"}) {
+    for (const fs::path& p :
+         {exe_dir / "firmware_bin" /* portable package */, exe_dir / "../../firmware_bin",
+          root / "build/release/firmware_bin", root / "build/dev/firmware_bin"}) {
         std::error_code ec;
         if (fs::is_directory(p, ec)) return fs::weakly_canonical(p, ec);
     }
