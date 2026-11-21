@@ -267,6 +267,7 @@ void panel_events(AppState& st) {
             st.tv.jump = true;
             st.tv.cursor_t = r.t;
         }
+        const bool row_hovered = ImGui::IsItemHovered();
         ImGui::SetCursorScreenPos(p);
         ImGui::GetWindowDrawList()->AddCircleFilled(
             {p.x + 5.0f, p.y + ImGui::GetTextLineHeight() * 0.5f}, 3.5f, theme::u32(c));
@@ -276,8 +277,19 @@ void panel_events(AppState& st) {
         else
             ui::mono_colored(tok::muted, "%9s", "--");
         ImGui::SameLine();
+        // Long lines end in "..." instead of being cut off; the full text is in the tooltip.
+        std::string shown_text = r.text;
+        const float room = ImGui::GetContentRegionAvail().x - 4.0f;
+        const bool cut = ImGui::CalcTextSize(shown_text.c_str()).x > room;
+        if (cut) {
+            while (!shown_text.empty() &&
+                   ImGui::CalcTextSize((shown_text + "...").c_str()).x > room)
+                shown_text.pop_back();
+            shown_text += "...";
+        }
         ImGui::TextColored(theme::v4(r.kind == ui::EventKind::Info ? tok::text : c), "%s",
-                           r.text.c_str());
+                           shown_text.c_str());
+        if (cut && row_hovered) ImGui::SetTooltip("%s", r.text.c_str());
         ImGui::PopID();
     }
     if (shown == 0) ui::hint(st.session ? "No events yet. Press GO." : "No session.");

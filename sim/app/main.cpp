@@ -359,7 +359,11 @@ void maze_menu(AppState& st) {
 }
 
 void source_menu(AppState& st) {
-    if (fitted_combo("##src", std::string("Firmware  ") + source_label(st), 230.0f)) {
+    std::string preview = std::string("Firmware  ") + source_label(st);
+    if (st.mms_solver.empty() && !st.firmware.empty() &&
+        ImGui::CalcTextSize(preview.c_str()).x > 230.0f - ImGui::GetFrameHeight() * 2.0f)
+        preview = "Firmware  " + ui::firmware_info(st.firmware.stem().string()).short_label;
+    if (fitted_combo("##src", preview, 230.0f)) {
         if (ImGui::Selectable("No firmware", st.firmware.empty() && st.mms_solver.empty()))
             select_firmware(st, {});
         std::vector<std::string> stems;
@@ -827,11 +831,12 @@ void register_actions(AppState& st, Audio& audio) {
                    select_firmware(*s, {});
                    return std::string("No firmware");
                }
-               for (const auto& f : s->firmwares)
-                   if (f.stem().string().find(a[0]) != std::string::npos) {
-                       select_firmware(*s, f);
-                       return "Firmware " + f.stem().string();
-                   }
+               std::vector<std::string> stems;
+               for (const auto& f : s->firmwares) stems.push_back(f.stem().string());
+               if (const auto i = ui::match_firmware(stems, a[0])) {
+                   select_firmware(*s, s->firmwares[*i]);
+                   return "Firmware " + ui::firmware_info(stems[*i]).label;
+               }
                return "No firmware matches '" + a[0] + "'";
            }});
     r.add({"ws", "1 2 3 4", "Workspaces", "Switch workspace: cockpit, studio, telemetry, tuning",

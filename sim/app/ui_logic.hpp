@@ -84,6 +84,11 @@ FirmwareInfo firmware_info(std::string_view stem);
 /// (indices into `stems`).
 std::vector<std::size_t> firmware_menu_order(const std::vector<std::string>& stems);
 
+/// Console `fw <query>`: an exact stem wins; otherwise the first firmware in menu order whose
+/// stem, label or short label contains the query (case-insensitive, spaces and dashes ignored).
+std::optional<std::size_t> match_firmware(const std::vector<std::string>& stems,
+                                          std::string_view query);
+
 /// "00:12.345" (minutes:seconds.millis); hours are folded into minutes.
 std::string format_sim_time(std::int64_t time_us);
 

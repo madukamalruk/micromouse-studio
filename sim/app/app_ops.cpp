@@ -472,14 +472,17 @@ an::ReportInput report_input(const AppState& st) {
                  wz = series(rec, "sim.w"), il = series(rec, "sim.i_l"),
                  gz = series(rec, "sim.gyro_z");
     const bool has_fw = !st.firmware.empty() || !st.mms_solver.empty();
-    bool goal = false;
-    for (const auto& l : s.logs())
+    bool goal = false, errored = !st.sim_error.empty() || !w.crashes().empty();
+    for (const auto& l : s.logs()) {
         if (l.text.find("goal reached") != std::string::npos) goal = true;
+        if (l.text.find("ERROR") != std::string::npos) errored = true;
+    }
+    // A run that is simply not there yet is "not measured", not a failure.
     in.checks.push_back({"Goal reached",
-                         !has_fw ? "NOT MEASURED"
-                         : goal  ? "PASS"
-                                 : "FAIL",
-                         goal ? "yes" : "no", "centre found"});
+                         (!has_fw || (!goal && !errored)) ? "NOT MEASURED"
+                         : goal                           ? "PASS"
+                                                          : "FAIL",
+                         goal ? "yes" : (errored ? "no" : "not yet"), "centre found"});
     in.checks.push_back({"No wall crashes", w.crashes().empty() ? "PASS" : "FAIL",
                          std::to_string(w.crashes().size()), "0"});
     const double cap = w.config().motor.max_voltage;

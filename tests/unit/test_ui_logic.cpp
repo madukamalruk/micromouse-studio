@@ -189,7 +189,9 @@ TEST_SUITE("ui") {
     TEST_CASE("ui: firmware menu puts the five solvers first, fixtures last") {
         CHECK(firmware_info("demo_dijkstra").label == "Turn-Weighted Dijkstra");
         CHECK(firmware_info("demo_dijkstra").short_label == "Dijkstra");
-        CHECK(firmware_info("demo_tremaux").label == "TrÃ©maux");
+        CHECK(firmware_info("demo_tremaux").label ==
+              "Tr\xc3\xa9"
+              "maux");
         CHECK(firmware_info("demo_floodfill").group == 0);
         CHECK(firmware_info("test_faults").group == 2);
         CHECK(firmware_info("my_robot").group == 1);
@@ -203,5 +205,20 @@ TEST_SUITE("ui") {
                                                "demo_tremaux",   "demo_wallfollower", "my_robot",
                                                "test_blink",     "test_faults"};
         CHECK(sorted == want);
+    }
+
+    TEST_CASE("ui: console fw query matches stems and human names") {
+        const std::vector<std::string> stems = {"demo_astar",        "demo_dijkstra",
+                                                "demo_floodfill",    "demo_tremaux",
+                                                "demo_wallfollower", "test_faults"};
+        CHECK(match_firmware(stems, "demo_astar") == 0);
+        CHECK(match_firmware(stems, "dijk") == 1);
+        CHECK(match_firmware(stems, "Flood-Fill") == 2);
+        CHECK(match_firmware(stems, "a*") == 0);
+        CHECK(match_firmware(stems, "wall") == 4);
+        CHECK(match_firmware(stems, "demo") == 2);  // first solver in menu order: Flood-Fill
+        CHECK(match_firmware(stems, "faults") == 5);
+        CHECK_FALSE(match_firmware(stems, "nothing").has_value());
+        CHECK_FALSE(match_firmware(stems, "").has_value());
     }
 }

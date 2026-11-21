@@ -148,7 +148,11 @@ FirmwareInfo firmware_info(std::string_view stem) {
          "Prices every 90 degree turn, so it prefers straighter, faster routes."},
         {"demo_astar", "Dynamic A*", "A*",
          "Plans one optimal path and replans only when a newly found wall blocks it."},
-        {"demo_tremaux", "TrÃ©maux", "TrÃ©maux",
+        {"demo_tremaux",
+         "Tr\xc3\xa9"
+         "maux",
+         "Tr\xc3\xa9"
+         "maux",
          "Marks passages with chalk, copes with loops, then returns the short way."},
         {"demo_wallfollower", "Wall Follower", "Wall Follower",
          "Left hand on the wall. The baseline: fails when the goal is an island."},
@@ -192,6 +196,29 @@ std::vector<std::size_t> firmware_menu_order(const std::vector<std::string>& ste
         return stems[a] < stems[b];
     });
     return idx;
+}
+
+std::optional<std::size_t> match_firmware(const std::vector<std::string>& stems,
+                                          std::string_view query) {
+    auto norm = [](std::string_view s) {
+        std::string o;
+        for (const char c : s)
+            if (c != ' ' && c != '-' && c != '_')
+                o += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return o;
+    };
+    const std::string q = norm(query);
+    if (q.empty()) return std::nullopt;
+    for (std::size_t i = 0; i < stems.size(); ++i)
+        if (stems[i] == query) return i;
+    for (const std::size_t i : firmware_menu_order(stems)) {
+        const FirmwareInfo fi = firmware_info(stems[i]);
+        if (norm(stems[i]).find(q) != std::string::npos ||
+            norm(fi.label).find(q) != std::string::npos ||
+            norm(fi.short_label).find(q) != std::string::npos)
+            return i;
+    }
+    return std::nullopt;
 }
 
 WindowPlacement fit_window(int want_w, int want_h, const ScreenRect& usable, const FrameBorders& b,
