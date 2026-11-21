@@ -242,6 +242,14 @@ Expected: analysis maths equals the Python reference on every shared vector; sta
 
 ---
 
+## Slice 10 - Solver suite, audit, portable release (2026-11-21)
+- [x] 10.1 **Five solvers** on `firmware/common/` (D15): Flood-Fill, Turn-Weighted Dijkstra, Dynamic A*, Trémaux, Wall Follower; GUI selector with labels; `tools/benchmark.py`, `tools/gen_mazes.py`, four generated test mazes. Verify: `ctest --preset dev` (34/34), arm-check, boundary.
+- [ ] 10.2 Full functional and UI/UX audit (checklist in `docs/audit.md`).
+- [ ] 10.3 Portable Windows zip (`tools/package_release.ps1`), release workflow, README.
+- [ ] 10.4 Pre-push privacy, paths and secrets audit. Push only after confirmation.
+
+---
+
 ## Candidate project skills (create only after the pattern repeats twice)
 - `add-sensor-model` — new `ISensorModel` + JSON type + tests.
 - `add-firmware` — new firmware folder + CMake DLL target + arm-check + boundary test.

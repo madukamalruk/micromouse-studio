@@ -59,7 +59,7 @@ TEST_SUITE("batch") {
         const std::string dir = (test_paths::source_dir() / "mazes/test").generic_string();
         std::vector<std::string> missing;
         const auto files = host::expand_maze_globs(
-            {dir + "/*.txt", dir + "/tiny4x4.txt", dir + "/*.nothing", dir + "/nope.txt"},
+            {dir + "/????????.txt", dir + "/tiny4x4.txt", dir + "/*.nothing", dir + "/nope.txt"},
             &missing);
         REQUIRE(files.size() == 2);  // corridor + tiny4x4, the duplicate merged
         CHECK(files[0].filename() == "corridor.txt");
