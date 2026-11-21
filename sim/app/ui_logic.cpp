@@ -137,6 +137,63 @@ int fit_count(const std::vector<float>& widths, float avail, float spacing) {
     return n;
 }
 
+FirmwareInfo firmware_info(std::string_view stem) {
+    struct Known {
+        const char *stem, *label, *short_label, *blurb;
+    };
+    static const Known kKnown[] = {
+        {"demo_floodfill", "Flood-Fill", "Flood-Fill",
+         "Counts cells to the goal and always steps downhill. The classic."},
+        {"demo_dijkstra", "Turn-Weighted Dijkstra", "Dijkstra",
+         "Prices every 90 degree turn, so it prefers straighter, faster routes."},
+        {"demo_astar", "Dynamic A*", "A*",
+         "Plans one optimal path and replans only when a newly found wall blocks it."},
+        {"demo_tremaux", "TrÃ©maux", "TrÃ©maux",
+         "Marks passages with chalk, copes with loops, then returns the short way."},
+        {"demo_wallfollower", "Wall Follower", "Wall Follower",
+         "Left hand on the wall. The baseline: fails when the goal is an island."},
+    };
+    FirmwareInfo fi;
+    int i = 0;
+    for (const Known& k : kKnown) {
+        if (stem == k.stem) {
+            fi.label = k.label;
+            fi.short_label = k.short_label;
+            fi.blurb = k.blurb;
+            fi.group = 0;
+            fi.order = i;
+            return fi;
+        }
+        ++i;
+    }
+    fi.label = fi.short_label = std::string(stem);
+    if (stem.rfind("test_", 0) == 0) {
+        fi.group = 2;
+        fi.blurb = "Development fixture, not a solver.";
+    } else if (stem.rfind("demo_", 0) == 0) {
+        fi.group = 0;
+        fi.blurb = "Demo firmware.";
+    } else {
+        fi.group = 1;
+        fi.blurb = "Custom firmware.";
+    }
+    return fi;
+}
+
+std::vector<std::size_t> firmware_menu_order(const std::vector<std::string>& stems) {
+    std::vector<std::size_t> idx(stems.size());
+    for (std::size_t i = 0; i < idx.size(); ++i) idx[i] = i;
+    std::stable_sort(idx.begin(), idx.end(), [&](std::size_t a, std::size_t b) {
+        const FirmwareInfo fa = firmware_info(stems[a]), fb = firmware_info(stems[b]);
+        const int ga = fa.group == 1 ? 0 : fa.group, gb = fb.group == 1 ? 0 : fb.group;
+        if (ga != gb) return ga < gb;  // solvers and custom firmware share the top group
+        if (fa.group != fb.group) return fa.group < fb.group;
+        if (fa.order != fb.order) return fa.order < fb.order;
+        return stems[a] < stems[b];
+    });
+    return idx;
+}
+
 WindowPlacement fit_window(int want_w, int want_h, const ScreenRect& usable, const FrameBorders& b,
                            int min_w, int min_h) {
     WindowPlacement p;

@@ -70,6 +70,20 @@ struct WindowPlacement {
 WindowPlacement fit_window(int want_w, int want_h, const ScreenRect& usable, const FrameBorders& b,
                            int min_w, int min_h);
 
+/// How a firmware DLL is presented. The five demo solvers get human names; other DLLs keep
+/// their file name. group 0 = solvers, 1 = other user firmware, 2 = test fixtures (test_*).
+struct FirmwareInfo {
+    std::string label;        // menu: "Turn-Weighted Dijkstra"
+    std::string short_label;  // top bar: "Dijkstra"
+    std::string blurb;        // one line for the tooltip
+    int group = 1;
+    int order = 100;  // within the group
+};
+FirmwareInfo firmware_info(std::string_view stem);
+/// Menu order: solvers in their canonical order, then other firmware, then test fixtures
+/// (indices into `stems`).
+std::vector<std::size_t> firmware_menu_order(const std::vector<std::string>& stems);
+
 /// "00:12.345" (minutes:seconds.millis); hours are folded into minutes.
 std::string format_sim_time(std::int64_t time_us);
 

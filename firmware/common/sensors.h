@@ -1,5 +1,5 @@
-#ifndef DEMO_SENSORS_H
-#define DEMO_SENSORS_H
+#ifndef FWC_SENSORS_H
+#define FWC_SENSORS_H
 
 #include <stdbool.h>
 

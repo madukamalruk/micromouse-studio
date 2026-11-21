@@ -1,5 +1,5 @@
-#ifndef DEMO_PROFILE_H
-#define DEMO_PROFILE_H
+#ifndef FWC_PROFILE_H
+#define FWC_PROFILE_H
 
 #include <stdbool.h>
 

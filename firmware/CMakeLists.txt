@@ -6,9 +6,15 @@ set(MMSIM_FIRMWARE_TARGETS "" CACHE INTERNAL "")
 
 function(mmsim_add_firmware name)
     file(GLOB fw_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${name}/*.c")
+    # The demo_* solvers share the motion / control / sensing stack in firmware/common.
+    if(name MATCHES "^demo_")
+        file(GLOB common_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/common/*.c")
+        list(APPEND fw_sources ${common_sources})
+    endif()
     set(target fw_${name})
     add_library(${target} SHARED ${fw_sources} "${PROJECT_SOURCE_DIR}/sim/hal_sim/hal_sim.c")
     target_link_libraries(${target} PRIVATE mmhal)
+    target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")  # "common/x.h"
     # hal_sim.c needs sim/hal_sim/host_api.h; firmware files never include it (boundary test).
     set_source_files_properties("${PROJECT_SOURCE_DIR}/sim/hal_sim/hal_sim.c" TARGET_DIRECTORY ${target}
         PROPERTIES INCLUDE_DIRECTORIES "${PROJECT_SOURCE_DIR}")

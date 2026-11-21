@@ -16,7 +16,8 @@ add_executable(mmsim_unit_tests
     unit/test_sensors.cpp
     unit/test_slip.cpp
     unit/test_pacer.cpp
-    unit/test_demo_floodfill.cpp
+    unit/test_solvers.cpp
+    unit/test_planners.cpp
     unit/test_telemetry.cpp
     unit/test_replay.cpp
     unit/test_mms.cpp
@@ -24,6 +25,14 @@ add_executable(mmsim_unit_tests
     unit/test_settings.cpp
     unit/test_analysis.cpp
     unit/test_ui_logic.cpp)
+# firmware/common planners compiled for the host (pure C, no simulator): unit/test_planners.cpp
+add_library(fw_common_host STATIC
+    "${PROJECT_SOURCE_DIR}/firmware/common/maze.c"
+    "${PROJECT_SOURCE_DIR}/firmware/common/plan.c"
+    unit/fw_hal_stub.c)
+target_link_libraries(fw_common_host PRIVATE mmhal)
+mmsim_set_warnings(fw_common_host)
+target_link_libraries(mmsim_unit_tests PRIVATE fw_common_host)
 target_link_libraries(mmsim_unit_tests PRIVATE simcore mmsim_host mmsim_camera mmsim_cli_args mmsim_settings mmsim_uilogic mmhal
     doctest::doctest nlohmann_json::nlohmann_json)
 target_compile_definitions(mmsim_unit_tests PRIVATE
@@ -51,7 +60,7 @@ else()
 endif()
 mmsim_set_warnings(mmsim_unit_tests)
 
-add_test(NAME unit.smoke    COMMAND mmsim_unit_tests --test-suite-exclude=maze,app,physics,host,watchdog,sensors,integration,telemetry,replay,controls,mms,batch,analysis,battery,compare,ui)
+add_test(NAME unit.smoke    COMMAND mmsim_unit_tests --test-suite-exclude=maze,app,physics,host,watchdog,sensors,integration,telemetry,replay,controls,mms,batch,analysis,battery,compare,ui,planners)
 add_test(NAME unit.maze     COMMAND mmsim_unit_tests --test-suite=maze)
 add_test(NAME unit.app      COMMAND mmsim_unit_tests --test-suite=app)
 add_test(NAME unit.physics  COMMAND mmsim_unit_tests --test-suite=physics)
@@ -66,7 +75,14 @@ add_test(NAME unit.analysis COMMAND mmsim_unit_tests --test-suite=analysis)
 add_test(NAME unit.battery  COMMAND mmsim_unit_tests --test-suite=battery)
 add_test(NAME unit.compare  COMMAND mmsim_unit_tests --test-suite=compare)
 add_test(NAME unit.ui       COMMAND mmsim_unit_tests --test-suite=ui)
-add_test(NAME integration.demo_floodfill COMMAND mmsim_unit_tests --test-suite=integration)
+add_test(NAME unit.planners COMMAND mmsim_unit_tests --test-suite=planners)
+# One ctest entry per solver so `ctest -j` runs them in parallel (doctest test-case filter).
+foreach(fw demo_floodfill demo_dijkstra demo_astar demo_tremaux demo_wallfollower)
+    add_test(NAME integration.${fw} COMMAND mmsim_unit_tests --test-suite=integration "--test-case=${fw}*")
+    set_tests_properties(integration.${fw} PROPERTIES LABELS "integration;solvers" TIMEOUT 900
+        ENVIRONMENT_MODIFICATION "${MMSIM_TEST_ENV}")
+endforeach()
+add_test(NAME integration.solvers_common COMMAND mmsim_unit_tests --test-suite=integration "--test-case=demo solvers*")
 # Own process: a hung firmware leaves a detached spinning thread until exit.
 add_test(NAME unit.watchdog COMMAND mmsim_unit_tests --test-suite=watchdog)
 set_tests_properties(unit.smoke    PROPERTIES LABELS "unit")
@@ -84,7 +100,8 @@ set_tests_properties(unit.analysis PROPERTIES LABELS "unit;analysis")
 set_tests_properties(unit.battery  PROPERTIES LABELS "unit;battery;analysis")
 set_tests_properties(unit.compare  PROPERTIES LABELS "unit;compare;analysis")
 set_tests_properties(unit.ui       PROPERTIES LABELS "unit;ui")
-set_tests_properties(integration.demo_floodfill PROPERTIES LABELS "integration" TIMEOUT 900)
+set_tests_properties(integration.solvers_common PROPERTIES LABELS "integration;solvers" TIMEOUT 900)
+set_tests_properties(unit.planners PROPERTIES LABELS "unit;firmware")
 set_tests_properties(unit.watchdog PROPERTIES LABELS "unit;host" TIMEOUT 30)
 
 # --- Visual smoke tests: render headless (software renderer) and pixel-check every wall/post ---
@@ -117,8 +134,8 @@ set_tests_properties(app.rejects_bad_maze PROPERTIES WILL_FAIL TRUE LABELS "app;
 
 set_tests_properties(unit.smoke unit.maze unit.app unit.physics unit.sensors unit.host unit.watchdog
     unit.telemetry unit.replay unit.controls unit.mms unit.batch
-    unit.analysis unit.battery unit.compare unit.ui
-    integration.demo_floodfill
+    unit.analysis unit.battery unit.compare unit.ui unit.planners
+    integration.solvers_common
     PROPERTIES ENVIRONMENT_MODIFICATION "${MMSIM_TEST_ENV}")
 
 # --- HAL boundary checks (AGENTS.md rules 1-3) -------------------------------

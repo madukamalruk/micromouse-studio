@@ -6,6 +6,8 @@ Firmware mode (default): every file under the given directories must be C
   * <mmhal/...>            the HAL contract
   * C standard headers     (C11 freestanding + hosted set)
   * "local.h"              headers inside the same firmware folder (no "..")
+  * "common/x.h"           headers of the shared firmware/common library (the checked root
+                           must contain common/x.h)
 HAL mode (--hal): headers may include only C standard headers and other mmhal headers.
 
 Exit 0 = clean, 1 = violations, 2 = usage error. Missing directory = clean (nothing to check).
@@ -43,6 +45,9 @@ def check_file(path: Path, root: Path, hal_mode: bool) -> list[str]:
         where = f"{rel}:{lineno}: #include {kind}{name}{'>' if kind == '<' else chr(34)}"
         if name in C_STD_HEADERS or name.startswith("mmhal/"):
             continue
+        if not hal_mode and kind == '"' and name.startswith("common/") and ".." not in Path(name).parts:
+            if (root / name).is_file():
+                continue
         if not hal_mode and kind == '"':
             target = (path.parent / name).resolve()
             if ".." not in Path(name).parts and target.is_relative_to(path.parent.resolve()):

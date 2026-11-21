@@ -1,10 +1,10 @@
 /*
- * demo_floodfill — robot constants. On a real robot these come from the build of that robot
- * and its calibration runs; here they match config/robots/generic_classic.json.
+ * common — robot constants shared by every demo_* solver. On a real robot these come from the build
+ * of that robot and its calibration runs; here they match config/robots/generic_classic.json.
  * Units: mm, s, degrees, volts.
  */
-#ifndef DEMO_CONFIG_H
-#define DEMO_CONFIG_H
+#ifndef FWC_CONFIG_H
+#define FWC_CONFIG_H
 
 /* ---- Maze ------------------------------------------------------------------------------ */
 #define MAZE_SIZE 16
@@ -62,4 +62,4 @@
 #define TURN_SPEED 720.0f  /* deg/s */
 #define TURN_ACCEL 9000.0f /* deg/s^2 */
 
-#endif /* DEMO_CONFIG_H */
+#endif /* FWC_CONFIG_H */

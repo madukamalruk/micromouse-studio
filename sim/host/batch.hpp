@@ -71,7 +71,8 @@ void write_json(std::ostream& out, const BatchReport& r, const BatchOptions& o);
 void write_csv(std::ostream& out, const BatchReport& r);
 
 /// Firmware argument: a .dll path, or NAME looked up in `dir` (exact NAME.dll, else the only
-/// DLL whose name starts with NAME, so "demo" finds demo_floodfill.dll).
+/// DLL whose name starts with NAME, so "demo_flood" finds demo_floodfill.dll; "dijkstra" finds
+/// demo_dijkstra.dll).
 std::optional<std::filesystem::path> resolve_firmware(const std::string& arg,
                                                       const std::filesystem::path& dir,
                                                       std::string& error);

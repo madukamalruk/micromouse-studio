@@ -185,4 +185,23 @@ TEST_SUITE("ui") {
         CHECK(p.min_w <= p.client.w);
         on_screen(p, tiny);
     }
+
+    TEST_CASE("ui: firmware menu puts the five solvers first, fixtures last") {
+        CHECK(firmware_info("demo_dijkstra").label == "Turn-Weighted Dijkstra");
+        CHECK(firmware_info("demo_dijkstra").short_label == "Dijkstra");
+        CHECK(firmware_info("demo_tremaux").label == "TrÃ©maux");
+        CHECK(firmware_info("demo_floodfill").group == 0);
+        CHECK(firmware_info("test_faults").group == 2);
+        CHECK(firmware_info("my_robot").group == 1);
+        CHECK(firmware_info("my_robot").label == "my_robot");
+        const std::vector<std::string> stems = {
+            "test_blink",  "demo_wallfollower", "my_robot",     "demo_astar",
+            "test_faults", "demo_floodfill",    "demo_tremaux", "demo_dijkstra"};
+        std::vector<std::string> sorted;
+        for (std::size_t i : firmware_menu_order(stems)) sorted.push_back(stems[i]);
+        const std::vector<std::string> want = {"demo_floodfill", "demo_dijkstra",     "demo_astar",
+                                               "demo_tremaux",   "demo_wallfollower", "my_robot",
+                                               "test_blink",     "test_faults"};
+        CHECK(sorted == want);
+    }
 }

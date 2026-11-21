@@ -14,7 +14,7 @@ endif()
 
 set(_arm_flags -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16
     -std=c11 -O2 -ffreestanding -Wall -Wextra -Wpedantic -Werror -Wdouble-promotion
-    -I${PROJECT_SOURCE_DIR}/hal/include)
+    -I${PROJECT_SOURCE_DIR}/hal/include -I${PROJECT_SOURCE_DIR}/firmware)
 
 if(MMSIM_ARM_GCC)
     message(STATUS "arm-check: ${MMSIM_ARM_GCC}")

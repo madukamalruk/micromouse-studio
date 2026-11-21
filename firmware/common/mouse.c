@@ -111,17 +111,18 @@ static void enter_next_cell(void) {
 
 /* ---- Search ------------------------------------------------------------------------------ */
 
-bool mouse_search(target_t target) {
+static unsigned g_cells_total; /* cells entered over the whole mission (telemetry "cells") */
+
+bool mouse_search(const solver_t* solver, target_t target) {
     bool moving = false; /* false: stopped at a cell centre; true: at a cell boundary */
     unsigned cells = 0;
     while (!maze_is_target(g_mouse.x, g_mouse.y, target)) {
-        if (maze_flood(target, FLOOD_SEARCH, g_mouse.x, g_mouse.y) == FLOOD_UNREACHABLE) {
+        const dir_t d = solver->next(target, FLOOD_SEARCH, g_mouse.x, g_mouse.y, g_mouse.heading);
+        if (d == DIR_NONE) {
             if (moving) stop_at_centre(SEARCH_SPEED, SEARCH_ACCEL);
             hal_log("ERROR target unreachable from (%u,%u)", g_mouse.x, g_mouse.y);
             return false;
         }
-        maze_annotate_distances();
-        const dir_t d = maze_best_dir(g_mouse.x, g_mouse.y, g_mouse.heading, FLOOD_SEARCH);
         if (!moving) {
             mouse_face(d);
             control_steering(true);
@@ -138,35 +139,35 @@ bool mouse_search(target_t target) {
         enter_next_cell();
         read_walls();
         ++cells;
+        hal_telemetry("cells", (float)++g_cells_total);
         hal_annotate_cell_color(g_mouse.x, g_mouse.y, 'B');
     }
     stop_at_centre(SEARCH_SPEED, SEARCH_ACCEL);
-    maze_flood(target, FLOOD_SEARCH, g_mouse.x, g_mouse.y);
-    maze_annotate_distances();
     hal_log("search reached (%u,%u) after %u cells", g_mouse.x, g_mouse.y, cells);
     return true;
 }
 
 /* ---- Speed run -------------------------------------------------------------------------- */
 
-bool mouse_speed_run(void) {
-    if (maze_flood(TARGET_GOAL, FLOOD_KNOWN, g_mouse.x, g_mouse.y) == FLOOD_UNREACHABLE) {
-        hal_log("ERROR no known path to the goal");
-        return false;
-    }
-    maze_annotate_distances();
+bool mouse_speed_run(const solver_t* solver) {
+    bool first = true;
     while (!maze_is_target(g_mouse.x, g_mouse.y, TARGET_GOAL)) {
-        const dir_t d = maze_best_dir(g_mouse.x, g_mouse.y, g_mouse.heading, FLOOD_KNOWN);
+        const dir_t d =
+            solver->next(TARGET_GOAL, FLOOD_KNOWN, g_mouse.x, g_mouse.y, g_mouse.heading);
         if (d == DIR_NONE) {
-            hal_log("ERROR speed run lost at (%u,%u)", g_mouse.x, g_mouse.y);
+            if (first)
+                hal_log("ERROR no known path to the goal");
+            else
+                hal_log("ERROR speed run lost at (%u,%u)", g_mouse.x, g_mouse.y);
             return false;
         }
+        first = false;
         /* Count straight cells in this direction along the path. */
         unsigned n = 0;
         uint8_t x = g_mouse.x, y = g_mouse.y;
         for (;;) {
             if (maze_is_target(x, y, TARGET_GOAL) && n > 0) break;
-            if (maze_best_dir(x, y, d, FLOOD_KNOWN) != d) break;
+            if (solver->next(TARGET_GOAL, FLOOD_KNOWN, x, y, d) != d) break;
             maze_neighbour(x, y, d, &x, &y);
             hal_annotate_cell_color(x, y, 'G');
             ++n;

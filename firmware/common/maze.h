@@ -1,5 +1,5 @@
-#ifndef DEMO_MAZE_H
-#define DEMO_MAZE_H
+#ifndef FWC_MAZE_H
+#define FWC_MAZE_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -26,6 +26,13 @@ static inline dir_t dir_left(dir_t d) {
 static inline dir_t dir_behind(dir_t d) {
     return (dir_t)((d + 2) & 3);
 }
+
+/* Map version: changes whenever a known wall changes. Planners cache against it. */
+uint16_t maze_version(void);
+bool maze_in_bounds(int x, int y);
+/* No known wall on side d of (x, y); FLOOD_KNOWN additionally requires the wall to be
+ * known to be absent. */
+bool maze_passable(uint8_t x, uint8_t y, dir_t d, flood_mode_t mode);
 
 void maze_init(void);
 void maze_set_wall(uint8_t x, uint8_t y, dir_t d, bool present); /* both sides, marks known */

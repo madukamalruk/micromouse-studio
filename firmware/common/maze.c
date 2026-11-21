@@ -8,6 +8,7 @@ static uint8_t g_walls[MAZE_SIZE][MAZE_SIZE]; /* bit d = wall known present */
 static uint8_t g_known[MAZE_SIZE][MAZE_SIZE]; /* bit d = wall state known */
 static uint16_t g_dist[MAZE_SIZE][MAZE_SIZE];
 static uint16_t g_shown[MAZE_SIZE][MAZE_SIZE]; /* last value sent to the overlay */
+static uint16_t g_version;                     /* bumps whenever a known wall changes */
 
 static const int8_t DX[4] = {0, 1, 0, -1};
 static const int8_t DY[4] = {1, 0, -1, 0};
@@ -17,16 +18,27 @@ static bool in_maze(int x, int y) {
     return x >= 0 && y >= 0 && x < MAZE_SIZE && y < MAZE_SIZE;
 }
 
+bool maze_in_bounds(int x, int y) {
+    return in_maze(x, y);
+}
+
+uint16_t maze_version(void) {
+    return g_version;
+}
+
 static void set_one(int x, int y, dir_t d, bool present) {
     const uint8_t bit = (uint8_t)(1u << d);
+    const uint8_t before_w = g_walls[x][y], before_k = g_known[x][y];
     if (present)
         g_walls[x][y] |= bit;
     else
         g_walls[x][y] &= (uint8_t)~bit;
     g_known[x][y] |= bit;
+    if (before_w != g_walls[x][y] || before_k != g_known[x][y]) ++g_version;
 }
 
 void maze_init(void) {
+    ++g_version; /* monotonic: a reset map never looks like an older version to a cache */
     for (int x = 0; x < MAZE_SIZE; ++x)
         for (int y = 0; y < MAZE_SIZE; ++y) {
             g_walls[x][y] = 0;
@@ -72,9 +84,13 @@ bool maze_is_target(uint8_t x, uint8_t y, target_t t) {
     return (x == c - 1 || x == c) && (y == c - 1 || y == c);
 }
 
+bool maze_passable(uint8_t x, uint8_t y, dir_t d, flood_mode_t mode) {
+    if (maze_wall(x, y, d)) return false;
+    return mode == FLOOD_SEARCH || maze_known(x, y, d);
+}
+
 static bool passable(int x, int y, dir_t d, flood_mode_t mode) {
-    if (maze_wall((uint8_t)x, (uint8_t)y, d)) return false;
-    return mode == FLOOD_SEARCH || maze_known((uint8_t)x, (uint8_t)y, d);
+    return maze_passable((uint8_t)x, (uint8_t)y, d, mode);
 }
 
 uint16_t maze_flood(target_t t, flood_mode_t mode, uint8_t x, uint8_t y) {

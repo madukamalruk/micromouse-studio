@@ -264,7 +264,7 @@ const char* source_label(const AppState& st) {
     if (!st.mms_solver.empty())
         s = st.mms_solver.stem().string() + " (mms)";
     else if (!st.firmware.empty())
-        s = st.firmware.stem().string();
+        s = ui::firmware_info(st.firmware.stem().string()).label;
     else
         s = "No firmware";
     return s.c_str();

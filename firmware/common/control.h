@@ -1,5 +1,5 @@
-#ifndef DEMO_CONTROL_H
-#define DEMO_CONTROL_H
+#ifndef FWC_CONTROL_H
+#define FWC_CONTROL_H
 
 #include <stdbool.h>
 

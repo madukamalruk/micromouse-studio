@@ -362,10 +362,23 @@ void source_menu(AppState& st) {
     if (fitted_combo("##src", std::string("Firmware  ") + source_label(st), 230.0f)) {
         if (ImGui::Selectable("No firmware", st.firmware.empty() && st.mms_solver.empty()))
             select_firmware(st, {});
-        for (const auto& f : st.firmwares)
-            if (ImGui::Selectable(f.stem().string().c_str(),
-                                  f == st.firmware && st.mms_solver.empty()))
-                select_firmware(st, f);
+        std::vector<std::string> stems;
+        for (const auto& f : st.firmwares) stems.push_back(f.stem().string());
+        int shown_group = -1;
+        for (const std::size_t i : ui::firmware_menu_order(stems)) {
+            const ui::FirmwareInfo fi = ui::firmware_info(stems[i]);
+            if (fi.group == 2 && st.mode != ui::Mode::Engineer)
+                continue;  // fixtures: Engineer only
+            if (fi.group == 2 && shown_group != 2) {
+                ImGui::Separator();
+                ImGui::TextDisabled("Test fixtures (development)");
+            }
+            shown_group = fi.group;
+            const bool sel = st.firmwares[i] == st.firmware && st.mms_solver.empty();
+            if (ImGui::Selectable(fi.label.c_str(), sel)) select_firmware(st, st.firmwares[i]);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                ImGui::SetTooltip("%s (%s.dll)", fi.blurb.c_str(), stems[i].c_str());
+        }
         if (st.firmwares.empty())
             ImGui::TextDisabled("No firmware DLLs found (build firmware_all).");
         if (!st.mms_solver.empty()) {

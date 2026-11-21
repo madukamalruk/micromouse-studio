@@ -77,6 +77,9 @@ std::optional<fs::path> resolve_firmware(const std::string& arg, const fs::path&
         return std::nullopt;
     }
     if (fs::is_regular_file(dir / (arg + ".dll"), ec)) return dir / (arg + ".dll");
+    // Short names for the demo solvers: "dijkstra" -> demo_dijkstra.dll.
+    if (fs::is_regular_file(dir / ("demo_" + arg + ".dll"), ec))
+        return dir / ("demo_" + arg + ".dll");
     std::vector<fs::path> hits;
     if (fs::is_directory(dir, ec))
         for (const auto& e : fs::directory_iterator(dir, ec)) {

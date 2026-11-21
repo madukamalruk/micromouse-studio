@@ -99,9 +99,14 @@ TEST_SUITE("batch") {
 
     TEST_CASE("firmware names resolve by exact name or unique prefix") {
         std::string err;
-        auto p = host::resolve_firmware("demo", fw_dir(), err);
+        auto p = host::resolve_firmware("demo_flood", fw_dir(), err);  // unique prefix
         REQUIRE(p.has_value());
         CHECK(p->filename() == "demo_floodfill.dll");
+        p = host::resolve_firmware("dijkstra", fw_dir(), err);  // short solver name
+        REQUIRE(p.has_value());
+        CHECK(p->filename() == "demo_dijkstra.dll");
+        CHECK_FALSE(host::resolve_firmware("demo", fw_dir(), err).has_value());  // five solvers
+        CHECK(err.find("ambiguous") != std::string::npos);
         CHECK(host::resolve_firmware("test_blink", fw_dir(), err).has_value());
         CHECK_FALSE(host::resolve_firmware("test_", fw_dir(), err).has_value());  // ambiguous
         CHECK(err.find("ambiguous") != std::string::npos);
@@ -157,7 +162,7 @@ TEST_SUITE("batch") {
     TEST_CASE("batch: demo firmware solves; time limit and load errors are failures") {
         host::BatchOptions o;
         std::string err;
-        o.firmware = *host::resolve_firmware("demo", fw_dir(), err);
+        o.firmware = *host::resolve_firmware("floodfill", fw_dir(), err);
         o.robot = robot();
         const auto mazes = generated_mazes("fw", {3});
         o.mazes = {mazes[0], "Z:/no/such/maze.txt"};
