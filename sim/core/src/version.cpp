@@ -2,6 +2,8 @@
 
 namespace mmsim::core {
 
-std::string_view version() noexcept { return MMSIM_VERSION; }
+std::string_view version() noexcept {
+    return MMSIM_VERSION;
+}
 
 }  // namespace mmsim::core

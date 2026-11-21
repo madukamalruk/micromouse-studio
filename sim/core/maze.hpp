@@ -8,10 +8,18 @@ namespace mmsim::core {
 /// Compass direction. Values match bit positions of the classic .maz encoding.
 enum class Dir : std::uint8_t { N = 0, E = 1, S = 2, W = 3 };
 
-constexpr std::uint8_t wall_bit(Dir d) { return static_cast<std::uint8_t>(1u << static_cast<unsigned>(d)); }
-constexpr Dir opposite(Dir d) { return static_cast<Dir>((static_cast<unsigned>(d) + 2u) & 3u); }
-constexpr int dx(Dir d) { return d == Dir::E ? 1 : d == Dir::W ? -1 : 0; }
-constexpr int dy(Dir d) { return d == Dir::N ? 1 : d == Dir::S ? -1 : 0; }
+constexpr std::uint8_t wall_bit(Dir d) {
+    return static_cast<std::uint8_t>(1u << static_cast<unsigned>(d));
+}
+constexpr Dir opposite(Dir d) {
+    return static_cast<Dir>((static_cast<unsigned>(d) + 2u) & 3u);
+}
+constexpr int dx(Dir d) {
+    return d == Dir::E ? 1 : d == Dir::W ? -1 : 0;
+}
+constexpr int dy(Dir d) {
+    return d == Dir::N ? 1 : d == Dir::S ? -1 : 0;
+}
 inline constexpr Dir kAllDirs[4] = {Dir::N, Dir::E, Dir::S, Dir::W};
 
 /// Cell coordinate. (0,0) is bottom-left (south-west); x grows east, y grows north.
@@ -24,7 +32,7 @@ struct Cell {
 /// Rectangular micromouse maze: per-cell wall bitmask (N=1 E=2 S=4 W=8), start, goals.
 /// Shared walls are always stored on both neighbouring cells (consistent by construction).
 class Maze {
-public:
+  public:
     Maze() = default;
     Maze(int width, int height);
 
@@ -51,7 +59,10 @@ public:
     const std::vector<Cell>& goals() const { return goals_; }
     bool is_goal(Cell c) const;
 
-    void set_start(Cell c, Dir heading) { start_ = c; start_heading_ = heading; }
+    void set_start(Cell c, Dir heading) {
+        start_ = c;
+        start_heading_ = heading;
+    }
     /// Start heading from walls: the single open side if exactly one, else North.
     void infer_start_heading();
     /// Stores goals in canonical order (y, then x), duplicates removed.
@@ -64,9 +75,10 @@ public:
 
     friend bool operator==(const Maze&, const Maze&) = default;
 
-private:
+  private:
     std::size_t index(int x, int y) const {
-        return static_cast<std::size_t>(y) * static_cast<std::size_t>(width_) + static_cast<std::size_t>(x);
+        return static_cast<std::size_t>(y) * static_cast<std::size_t>(width_) +
+               static_cast<std::size_t>(x);
     }
 
     int width_ = 0;

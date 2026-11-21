@@ -3,4 +3,6 @@
 
 #include "mmhal/hal.h"
 
-int fixture_bad(void) { return 0; }
+int fixture_bad(void) {
+    return 0;
+}

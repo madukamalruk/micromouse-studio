@@ -57,7 +57,9 @@ int Maze::wall_count() const {
     return n;
 }
 
-bool Maze::is_goal(Cell c) const { return std::find(goals_.begin(), goals_.end(), c) != goals_.end(); }
+bool Maze::is_goal(Cell c) const {
+    return std::find(goals_.begin(), goals_.end(), c) != goals_.end();
+}
 
 void Maze::infer_start_heading() {
     int open = 0;

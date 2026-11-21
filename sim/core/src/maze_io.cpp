@@ -57,8 +57,8 @@ std::optional<std::string> enclosure_error(const Maze& m) {
         if (!m.has_wall(0, y, Dir::W))
             return "maze is not enclosed: missing west wall of cell (0," + std::to_string(y) + ")";
         if (!m.has_wall(m.width() - 1, y, Dir::E))
-            return "maze is not enclosed: missing east wall of cell (" + std::to_string(m.width() - 1) +
-                   "," + std::to_string(y) + ")";
+            return "maze is not enclosed: missing east wall of cell (" +
+                   std::to_string(m.width() - 1) + "," + std::to_string(y) + ")";
     }
     return std::nullopt;
 }
@@ -76,10 +76,11 @@ MazeLoadResult from_raw(int w, int h, const std::vector<std::uint8_t>& raw, Line
                 const bool mine = (at(x, y) & wall_bit(d)) != 0;
                 const bool theirs = (at(nx, ny) & wall_bit(opposite(d))) != 0;
                 if (mine != theirs)
-                    return MazeLoadResult::fail(
-                        line_of(x, y), 0,
-                        "inconsistent wall between cell (" + std::to_string(x) + "," + std::to_string(y) +
-                            ") and (" + std::to_string(nx) + "," + std::to_string(ny) + ")");
+                    return MazeLoadResult::fail(line_of(x, y), 0,
+                                                "inconsistent wall between cell (" +
+                                                    std::to_string(x) + "," + std::to_string(y) +
+                                                    ") and (" + std::to_string(nx) + "," +
+                                                    std::to_string(ny) + ")");
             }
         }
     }
@@ -112,8 +113,8 @@ MazeLoadResult parse_text_map(std::string_view text) {
 
     const int rows = static_cast<int>(lines.size());
     if (rows < 3 || rows % 2 == 0)
-        return MazeLoadResult::fail(rows, 0,
-                                    "row count must be odd (2*height+1), got " + std::to_string(rows));
+        return MazeLoadResult::fail(
+            rows, 0, "row count must be odd (2*height+1), got " + std::to_string(rows));
     std::size_t longest = 0;
     int longest_line = 1;
     for (int i = 0; i < rows; ++i) {
@@ -137,7 +138,9 @@ MazeLoadResult parse_text_map(std::string_view text) {
         s.resize(static_cast<std::size_t>(cols), ' ');
         grid.push_back(std::move(s));
     }
-    auto ch = [&](int r, int c) { return grid[static_cast<std::size_t>(r)][static_cast<std::size_t>(c)]; };
+    auto ch = [&](int r, int c) {
+        return grid[static_cast<std::size_t>(r)][static_cast<std::size_t>(c)];
+    };
 
     Maze m(w, h);
     std::optional<Cell> start;
@@ -194,13 +197,14 @@ MazeLoadResult parse_num(std::string_view text) {
             p = q;
         }
         if (tok.size() != 6)
-            return MazeLoadResult::fail(lineno, 0, "expected 'X Y N E S W', got " +
-                                                       std::to_string(tok.size()) + " fields");
+            return MazeLoadResult::fail(
+                lineno, 0, "expected 'X Y N E S W', got " + std::to_string(tok.size()) + " fields");
         int v[6];
         for (int i = 0; i < 6; ++i) {
             if (!parse_int(tok[static_cast<std::size_t>(i)], v[i]))
-                return MazeLoadResult::fail(lineno, 0, "not an integer: '" +
-                                                           std::string(tok[static_cast<std::size_t>(i)]) + "'");
+                return MazeLoadResult::fail(
+                    lineno, 0,
+                    "not an integer: '" + std::string(tok[static_cast<std::size_t>(i)]) + "'");
             if (i >= 2 && v[i] != 0 && v[i] != 1)
                 return MazeLoadResult::fail(lineno, 0, "wall flags must be 0 or 1");
         }
@@ -225,24 +229,28 @@ MazeLoadResult parse_num(std::string_view text) {
     for (const auto& e : entries) {
         auto i = static_cast<std::size_t>(e.y * w + e.x);
         if (line_of[i] != 0)
-            return MazeLoadResult::fail(e.line, 0, "duplicate cell (" + std::to_string(e.x) + "," +
-                                                       std::to_string(e.y) + ")");
+            return MazeLoadResult::fail(
+                e.line, 0,
+                "duplicate cell (" + std::to_string(e.x) + "," + std::to_string(e.y) + ")");
         raw[i] = e.bits;
         line_of[i] = e.line;
     }
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x)
             if (line_of[static_cast<std::size_t>(y * w + x)] == 0)
-                return MazeLoadResult::fail(0, 0, "missing cell (" + std::to_string(x) + "," +
-                                                      std::to_string(y) + "); maze must be rectangular");
-    return from_raw(w, h, raw, [&](int x, int y) { return line_of[static_cast<std::size_t>(y * w + x)]; });
+                return MazeLoadResult::fail(0, 0,
+                                            "missing cell (" + std::to_string(x) + "," +
+                                                std::to_string(y) + "); maze must be rectangular");
+    return from_raw(w, h, raw,
+                    [&](int x, int y) { return line_of[static_cast<std::size_t>(y * w + x)]; });
 }
 
 MazeLoadResult parse_maz(std::span<const std::uint8_t> bytes) {
     int n = 0;
     while ((n + 1) * (n + 1) <= static_cast<int>(bytes.size())) ++n;
     if (n == 0 || n * n != static_cast<int>(bytes.size()) || n > kMaxDim)
-        return MazeLoadResult::fail(0, 0, ".maz size must be N*N bytes, got " + std::to_string(bytes.size()));
+        return MazeLoadResult::fail(
+            0, 0, ".maz size must be N*N bytes, got " + std::to_string(bytes.size()));
     std::vector<std::uint8_t> raw(bytes.size());
     for (int x = 0; x < n; ++x)
         for (int y = 0; y < n; ++y)
@@ -256,7 +264,8 @@ MazeLoadResult load_maze_file(const std::filesystem::path& path) {
     if (!in) return MazeLoadResult::fail(0, 0, "cannot open " + path.string());
     std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     std::string ext = path.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (ext == ".maz") {
         std::vector<std::uint8_t> bytes(data.begin(), data.end());
         return parse_maz(bytes);
@@ -268,8 +277,11 @@ MazeLoadResult load_maze_file(const std::filesystem::path& path) {
 std::string write_text_map(const Maze& m) {
     const int w = m.width(), h = m.height();
     const int rows = 2 * h + 1, cols = 4 * w + 1;
-    std::vector<std::string> g(static_cast<std::size_t>(rows), std::string(static_cast<std::size_t>(cols), ' '));
-    auto put = [&](int r, int c, char v) { g[static_cast<std::size_t>(r)][static_cast<std::size_t>(c)] = v; };
+    std::vector<std::string> g(static_cast<std::size_t>(rows),
+                               std::string(static_cast<std::size_t>(cols), ' '));
+    auto put = [&](int r, int c, char v) {
+        g[static_cast<std::size_t>(r)][static_cast<std::size_t>(c)] = v;
+    };
     for (int r = 0; r < rows; r += 2)
         for (int c = 0; c < cols; c += 4) put(r, c, 'o');
     for (int y = 0; y < h; ++y) {
@@ -298,8 +310,9 @@ std::string write_num(const Maze& m) {
     std::ostringstream os;
     for (int x = 0; x < m.width(); ++x)
         for (int y = 0; y < m.height(); ++y)
-            os << x << ' ' << y << ' ' << m.has_wall(x, y, Dir::N) << ' ' << m.has_wall(x, y, Dir::E) << ' '
-               << m.has_wall(x, y, Dir::S) << ' ' << m.has_wall(x, y, Dir::W) << '\n';
+            os << x << ' ' << y << ' ' << m.has_wall(x, y, Dir::N) << ' '
+               << m.has_wall(x, y, Dir::E) << ' ' << m.has_wall(x, y, Dir::S) << ' '
+               << m.has_wall(x, y, Dir::W) << '\n';
     return os.str();
 }
 

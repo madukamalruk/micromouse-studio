@@ -2,4 +2,6 @@
 #include "mmhal/hal.h"
 #include "sim/core/version.hpp"
 
-int fixture_bad(void) { return 0; }
+int fixture_bad(void) {
+    return 0;
+}

@@ -5,4 +5,6 @@
 #include "mmhal/hal.h"
 #include "util.h"
 
-int fixture_good(void) { return util_answer() + (int)sqrt(4.0); }
+int fixture_good(void) {
+    return util_answer() + (int)sqrt(4.0);
+}
