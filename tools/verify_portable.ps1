@@ -53,6 +53,12 @@ function Invoke-Clean([string]$Exe, [string[]]$Arguments, [int]$TimeoutSec = 180
     return @{ Code = $p.ExitCode; Out = $so.Result; Err = $se.Result }
 }
 
+function Get-PeSubsystem([string]$Path) {
+    $b = [System.IO.File]::ReadAllBytes($Path)
+    $pe = [BitConverter]::ToInt32($b, 0x3c)
+    return [BitConverter]::ToUInt16($b, $pe + 24 + 68)
+}
+
 $cliPath = Join-Path $pkg 'mmsim-cli.exe'
 $guiPath = Join-Path $pkg 'mmsim.exe'
 Test-Check 'MSYS2 is not on the child PATH' (-not ($clean -match 'msys64')) ''
@@ -75,6 +81,8 @@ Test-Check 'mmsim-cli --firmware wallfollower (perfect maze)' ($r.Code -eq 0 -an
 # 3. Contents: no mazefiles content, no state files, no private paths in text files.
 $files = Get-ChildItem $pkg -Recurse -File
 Test-Check 'no external/ or runs/ folder' (-not (Get-ChildItem $pkg -Directory | Where-Object { $_.Name -in 'external', 'runs', 'reports' }))
+Test-Check 'mmsim.exe is a GUI-subsystem exe (no console window)' ((Get-PeSubsystem $guiPath) -eq 2)
+Test-Check 'mmsim-cli.exe is a console exe' ((Get-PeSubsystem $cliPath) -eq 3)
 Test-Check 'mmsim.portable marker present' (Test-Path (Join-Path $pkg 'mmsim.portable'))
 Test-Check 'no mmsim.json / imgui.ini'(-not ($files | Where-Object { $_.Name -in 'mmsim.json', 'imgui.ini' }))
 $textHits = $files | Where-Object { $_.Extension -in '.md', '.txt', '.bat', '.json' } |

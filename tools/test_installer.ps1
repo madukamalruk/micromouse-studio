@@ -58,6 +58,14 @@ if (Test-Path $uninstKey) {
     Test-Check 'DisplayName / DisplayVersion' (($k.DisplayName -like 'Micromouse Studio*') -and ($k.DisplayVersion -eq $Version)) "($($k.DisplayName) $($k.DisplayVersion))"
 }
 
+function Get-PeSubsystem([string]$Path) {
+    $b = [System.IO.File]::ReadAllBytes($Path)
+    $pe = [BitConverter]::ToInt32($b, 0x3c)
+    return [BitConverter]::ToUInt16($b, $pe + 24 + 68)
+}
+Test-Check 'installed mmsim.exe is GUI subsystem (2)' ((Get-PeSubsystem (Join-Path $inst 'mmsim.exe')) -eq 2)
+Test-Check 'installed mmsim-cli.exe is console subsystem (3)' ((Get-PeSubsystem (Join-Path $inst 'mmsim-cli.exe')) -eq 3)
+
 # --- launch with a clean PATH and a redirected LOCALAPPDATA ------------------------------------
 $clean = ($env:PATH -split ';' | Where-Object { $_ -and ($_ -notmatch 'msys64|mingw|\\ucrt64|\\clang64|gcc') }) -join ';'
 function Invoke-Installed([string]$Exe, [string[]]$Arguments) {

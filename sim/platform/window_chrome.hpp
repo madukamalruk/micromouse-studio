@@ -12,4 +12,9 @@ namespace mmsim::platform {
 /// Returns false when the window has no HWND or DWM refused both attributes.
 bool apply_dark_titlebar(SDL_Window* window, std::uint32_t rgb);
 
+/// For the GUI-subsystem exe: when stdout/stderr are not redirected, attach to the parent
+/// console (if started from a terminal) so --help and log lines show up there. Never creates a
+/// console window, so a Desktop / Start Menu / Explorer launch stays windowless.
+void attach_parent_console();
+
 }  // namespace mmsim::platform

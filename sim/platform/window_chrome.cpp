@@ -5,7 +5,21 @@
 #include <dwmapi.h>
 #include <windows.h>
 
+#include <cstdio>
+
 namespace mmsim::platform {
+
+void attach_parent_console() {
+    const auto usable = [](DWORD which) {
+        const HANDLE h = GetStdHandle(which);
+        return h != nullptr && h != INVALID_HANDLE_VALUE;
+    };
+    const bool out_ok = usable(STD_OUTPUT_HANDLE), err_ok = usable(STD_ERROR_HANDLE);
+    if (out_ok && err_ok) return;  // redirected to a pipe or file: the CRT already uses them
+    if (!AttachConsole(ATTACH_PARENT_PROCESS)) return;  // no parent console: stay silent
+    if (!out_ok) std::freopen("CONOUT$", "w", stdout);
+    if (!err_ok) std::freopen("CONOUT$", "w", stderr);
+}
 
 bool apply_dark_titlebar(SDL_Window* window, std::uint32_t rgb) {
     SDL_SysWMinfo info;

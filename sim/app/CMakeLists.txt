@@ -27,7 +27,7 @@ mmsim_set_warnings(mmsim_applib)
 # Windows resources: icon (id 1, used by SDL for the window and by Explorer) + version block.
 set(MMSIM_ICON_FILE "${PROJECT_SOURCE_DIR}/assets/mmsim.ico")
 configure_file(mmsim.rc.in "${CMAKE_CURRENT_BINARY_DIR}/mmsim.rc" @ONLY)
-add_executable(mmsim main.cpp "${CMAKE_CURRENT_BINARY_DIR}/mmsim.rc")
+add_executable(mmsim WIN32 main.cpp "${CMAKE_CURRENT_BINARY_DIR}/mmsim.rc")
 set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/mmsim.rc" PROPERTIES
     OBJECT_DEPENDS "${MMSIM_ICON_FILE}")
 target_link_libraries(mmsim PRIVATE mmsim_applib SDL2::SDL2main stb_headers)
