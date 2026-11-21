@@ -8,7 +8,7 @@ Reference brief: [`docs/reference/mms-analysis.md`](reference/mms-analysis.md).
 `mackorone/mms` lets you test *maze-solving logic* but not a *micromouse*: it teleports a polygon between half-cell positions, answers wall queries from ground truth, and has no notion of time, motors, encoders, sensors or control loops. Bugs that kill real runs — PID tuning, sensor thresholds, profile timing, turn geometry, encoder/gyro fusion — are invisible until the robot is on the table. Peter Harrison (micromouseonline) demonstrated the alternative: the *same mouse code* builds either for the robot or inside a real-time simulator, and neither side knows about the other. No open, Windows-friendly tool does this well today.
 
 ## 2. Users
-- **Primary:** Maduka — building and tuning the Neomouse V2 (STM32F405) firmware; wants to develop algorithms *and* control code off-robot.
+- **Primary:** the author, building and tuning the Neomouse V2 (STM32F405) firmware; wants to develop algorithms *and* control code off-robot.
 - **Secondary:** other micromouse builders / students (incl. existing mms users who want their stdio solvers to keep working).
 
 ## 3. Goals (v1 = project Phase 1)
@@ -67,7 +67,7 @@ F18-F26 analysis maths comes from Neomouse V2 Mission Control (`Micromouse-Neomo
 ## 7. Constraints
 - **Platform:** Windows 11 x64 desktop. Code kept portable (no Win32 outside `sim/platform/`).
 - **Toolchain:** MSYS2 UCRT64 — GCC (C11/C++20), CMake, Ninja, SDL2 from pacman; Dear ImGui (docking branch) + ImPlot fetched at pinned versions. ARM syntax check uses STM32CubeIDE's bundled `arm-none-eabi-gcc` 14.3.
-- **Disk:** project on `D:\Projects\micromouse-sim`; MSYS2 at **`D:\msys64`** (~1.5–2 GB) to conserve C: space.
+- **Disk:** project on a non-system drive; MSYS2 at **`D:\msys64`** (~1.5–2 GB) to conserve C: space.
 - **Deadline / budget:** none stated; all deps free & permissively licensed (zlib/MIT).
 - **Performance:** 60 FPS UI with 16×16 maze + 4 plots; ≥ 50× real time headless; physics tick ≤ 20 µs on this machine.
 - **Offline:** fully offline after first dependency fetch.

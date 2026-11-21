@@ -4,7 +4,7 @@ _Status: **Approved 2026-11-20** · Last updated: 2026-11-20 · PRD: [prd.md](pr
 
 Every slice ends runnable and tested end-to-end. Tick a box only after its verification command has been run and its output shown. Sizes: S ≈ ½ day, M ≈ 1–2 days, L ≈ 3+ days (agent-assisted).
 
-All commands below are PowerShell from `D:\Projects\micromouse-sim`, after:
+All commands below are PowerShell from the repository root, after:
 ```powershell
 $env:Path = "D:\msys64\ucrt64\bin;" + $env:Path   # MSYS2 first, so the old C:\MinGW gcc 6.3 is never picked up
 ```
