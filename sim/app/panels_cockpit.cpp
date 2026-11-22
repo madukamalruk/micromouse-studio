@@ -110,7 +110,7 @@ void panel_faceplate(AppState& st) {
     if (st.session) {
         const auto& w = st.session->world();
         const double vb = std::max(0.1, w.battery_voltage());
-        const double cap = w.config().motor.max_voltage;
+        const double cap = core::effective_max_voltage(w.config().motor);
         const float lw = ImGui::CalcTextSize("R_PWM").x + 14.0f;
         for (int side = 0; side < 2; ++side) {
             const double v = w.motor_voltage(side);

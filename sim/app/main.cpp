@@ -1164,7 +1164,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
-    const float scale = unit_scale ? 1.0f : ImGui_ImplSDL2_GetContentScaleForDisplay(0);
+    float scale = unit_scale ? 1.0f : ImGui_ImplSDL2_GetContentScaleForDisplay(0);
     // Interactive windows are created hidden, fitted to the display's work area (whole frame,
     // titlebar included, on screen at any DPI), then shown. Scripted / hidden runs keep the
     // exact --size so captures and pixel checks stay deterministic.
@@ -1180,6 +1180,19 @@ int main(int argc, char** argv) {
         return 1;
     }
     set_window_icon(window);
+    if (!unit_scale) {
+        // The window may have opened on a monitor with another DPI than display 0: use the
+        // content scale of the display it is really on and resize to the intended logical size.
+        const int shown_on = SDL_GetWindowDisplayIndex(window);
+        if (shown_on >= 0) {
+            const float real = ImGui_ImplSDL2_GetContentScaleForDisplay(shown_on);
+            if (real > 0.0f && std::fabs(real - scale) > 1e-3f) {
+                scale = real;
+                SDL_SetWindowSize(window, static_cast<int>(static_cast<float>(args.width) * scale),
+                                  static_cast<int>(static_cast<float>(args.height) * scale));
+            }
+        }
+    }
     if (interactive) {
         const int display = std::max(0, SDL_GetWindowDisplayIndex(window));
         SDL_Rect usable{};

@@ -67,6 +67,10 @@ void World::reset() {
     accel_sum_ = {};
     duty_[0] = duty_[1] = 0.0;
     amps_[0] = amps_[1] = 0.0;
+    last_dir_[0] = last_dir_[1] = 0;
+    zero_since_us_[0] = zero_since_us_[1] = -1;
+    rev_blocked_[0] = rev_blocked_[1] = false;
+    reversal_violations_ = 0;
     soc_ = cfg_.battery.soc0;
     i_bat_ = cfg_.battery.electronics_a;
     v_bat_ = cfg_.battery.model
@@ -97,13 +101,34 @@ void World::update_battery(double dt) {
     v_bat_ = std::max(
         0.0, cfg_.battery.cells * analysis::lipo_ocv(soc_) - cfg_.battery.r_int_ohm * i_bat_);
     for (int i = 0; i < 2; ++i)
-        volts_[i] = std::clamp(duty_[i] * v_bat_, -cfg_.motor.max_voltage, cfg_.motor.max_voltage);
+        volts_[i] = std::clamp(duty_[i] * v_bat_, -effective_max_voltage(cfg_.motor),
+                               effective_max_voltage(cfg_.motor));
 }
 
 void World::set_motor_duty(int side, double duty) {
-    duty = std::clamp(duty, -1.0, 1.0);
-    duty_[side & 1] = duty;
-    volts_[side & 1] = model_.clamp_voltage(duty * v_bat_);
+    const int m = side & 1;
+    duty = std::isfinite(duty) ? std::clamp(duty, -1.0, 1.0) : 0.0;
+    if (!cfg_.motor.allow_unsafe_voltage) {
+        // Rule B: a reversal needs >= 20 ms at 0 V first. Unsafe commands are clamped to 0.
+        const int dir = duty > 0.0 ? 1 : (duty < 0.0 ? -1 : 0);
+        if (dir == 0) {
+            if (last_dir_[m] != 0 && zero_since_us_[m] < 0) zero_since_us_[m] = time_us_;
+        } else if (last_dir_[m] != 0 && dir != last_dir_[m]) {
+            if (zero_since_us_[m] < 0) zero_since_us_[m] = time_us_;  // coast starts now
+            if (time_us_ - zero_since_us_[m] < kReversalDeadUs) {
+                if (!rev_blocked_[m]) ++reversal_violations_;
+                rev_blocked_[m] = true;
+                duty = 0.0;
+            }
+        }
+        if (dir != 0 && duty != 0.0) {
+            last_dir_[m] = dir;
+            zero_since_us_[m] = -1;
+            rev_blocked_[m] = false;
+        }
+    }
+    duty_[m] = duty;
+    volts_[m] = model_.clamp_voltage(duty * v_bat_);
 }
 
 void World::step_tick() {

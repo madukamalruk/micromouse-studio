@@ -54,6 +54,8 @@ class World {
     /// Stall-current helper (also used by tests): armature current at voltage v.
     static double armature_current(const RobotConfig& c, double v, double wheel_speed);
     int overvoltage_events() const { return model_.overvoltage_events(); }
+    /// Times a duty command reversed a motor inside the 20 ms dead-time and was clamped to 0.
+    int reversal_violations() const { return reversal_violations_; }
 
     void step_tick();
     void reset();
@@ -95,6 +97,12 @@ class World {
     double volts_[2] = {0.0, 0.0};
     double duty_[2] = {0.0, 0.0};
     double amps_[2] = {0.0, 0.0};
+    // Reversal dead-time tracker (Rule B), per motor: direction of the last drive, and
+    // when 0 V started after it (-1 while driving).
+    int last_dir_[2] = {0, 0};
+    std::int64_t zero_since_us_[2] = {-1, -1};
+    bool rev_blocked_[2] = {false, false};
+    int reversal_violations_ = 0;
     double v_bat_ = 0.0;
     double i_bat_ = 0.0;
     double soc_ = 1.0;

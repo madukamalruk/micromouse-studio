@@ -116,7 +116,7 @@ void SensorSuite::sample(std::size_t i, std::int64_t now_us, const Pose& robot,
         if (h.hit) {
             nearest = std::min(nearest, h.t);
             const double cos_inc = std::max(0.0, -(d.x * h.normal.x + d.y * h.normal.y));
-            const double r = h.t + s.ir_d0;
+            const double r = std::max(h.t + s.ir_d0, 1e-6);  // 0 when touching a wall, d0 = 0
             ir_sum += weight * s.ir_gain * std::pow(cos_inc, s.ir_incidence_exp) / (r * r);
         }
     }

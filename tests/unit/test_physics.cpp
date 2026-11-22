@@ -30,6 +30,7 @@ RobotConfig ideal_robot() {
     c.motor.coulomb = 0.0;
     c.motor.efficiency = 1.0;
     c.motor.max_voltage = 100.0;
+    c.motor.allow_unsafe_voltage = true;
     c.battery_voltage = 7.4;
     return c;
 }

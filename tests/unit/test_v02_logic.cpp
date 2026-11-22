@@ -5,6 +5,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 
 #include "sim/app/attitude.hpp"
@@ -13,7 +14,10 @@
 #include "sim/app/help_text.hpp"
 #include "sim/app/race_timer.hpp"
 #include "sim/app/user_paths.hpp"
+#include "sim/core/maze.hpp"
 #include "sim/core/robot_config.hpp"
+#include "sim/core/world.hpp"
+#include "test_paths.hpp"
 
 using namespace mmsim::app;
 namespace fs = std::filesystem;
@@ -375,15 +379,19 @@ TEST_SUITE("ui") {
         CHECK(c.motor.max_voltage == doctest::Approx(c0.motor.max_voltage));
     }
 
-    TEST_CASE("config edit: the 6 V motor rule warns, nonsense is an error") {
+    TEST_CASE("config edit: the 6 V motor rule is an error, nonsense is an error") {
         ConfigEdit e = edit_from_config(generic());
         CHECK(validate_edit(e).empty());
         e.max_voltage = 7.4;
         auto issues = validate_edit(e);
         REQUIRE(issues.size() == 1);
-        CHECK(issues[0].level == IssueLevel::Warn);
+        CHECK(issues[0].level == IssueLevel::Error);
         CHECK(issues[0].text.find("6.0") != std::string::npos);
-        CHECK_FALSE(has_errors(issues));
+        CHECK(has_errors(issues));
+        core::RobotConfig capped = generic();
+        apply_edit(e, capped);
+        CHECK(capped.motor.max_voltage == doctest::Approx(6.0));  // never applied above 6 V
+        e.max_voltage = 6.0;
         e.mass_g = -5.0;
         e.wheel_radius_mm = 0.0;
         issues = validate_edit(e);
@@ -404,6 +412,9 @@ TEST_SUITE("ui") {
         CHECK_FALSE(err.empty());
         CHECK_FALSE(save_config_copy(c, dir, "../evil", out, err));
         CHECK_FALSE(save_config_copy(c, dir, "bad:name", out, err));
+        for (const char* bad : {"CON", "nul", "Com1", "LPT9", "aux.json", "PRN"})
+            CHECK_FALSE(save_config_copy(c, dir, bad, out, err));
+        CHECK(save_config_copy(c, dir, "COM10", out, err));  // not a device name
         // The copy loads back as the same robot.
         auto back = core::load_robot_config(out);
         REQUIRE(back.ok());
@@ -427,5 +438,56 @@ TEST_SUITE("ui") {
             for (unsigned char ch : t) CHECK(ch < 0x80);  // ASCII only: renders in every font
         }
         CHECK(std::string(help_name(Help::Attitude)) == "Attitude");
+    }
+}
+
+TEST_SUITE("ui") {
+    TEST_CASE(
+        "safety: motor reversal needs 20 ms at 0 V in the simulator, unsafe config rejected") {
+        const fs::path file = test_paths::source_dir() / "config/robots/generic_classic.json";
+        auto r = core::load_robot_config(file);
+        REQUIRE(r.ok());
+        core::RobotConfig c = *r.config;
+        c.sensors.clear();
+        core::Maze m(16, 16);
+        m.set_start({8, 8}, core::Dir::N);
+        m.set_goals({{0, 0}});
+        core::World w(m, c);
+        w.set_motor_duty(0, 0.5);
+        CHECK(w.motor_voltage(0) > 0.0);
+        w.step_tick();
+        w.set_motor_duty(0, -0.5);  // direct flip: clamped to 0 V
+        CHECK(w.motor_voltage(0) == doctest::Approx(0.0));
+        CHECK(w.reversal_violations() == 1);
+        for (int i = 0; i < 19; ++i) {  // 0 V has lasted < 20 ms
+            w.step_tick();
+            w.set_motor_duty(0, -0.5);
+            CHECK(w.motor_voltage(0) == doctest::Approx(0.0));
+        }
+        w.step_tick();  // 20 ms at 0 V
+        w.set_motor_duty(0, -0.5);
+        CHECK(w.motor_voltage(0) < 0.0);
+        CHECK(w.reversal_violations() == 1);  // one episode, not one per call
+        w.set_motor_duty(1, 1.0);             // never above the 6 V cap, even from an 8.4 V pack
+        CHECK(w.motor_voltage(1) <= core::kMotorSafeVoltage + 1e-12);
+
+        // A config above 6 V is rejected unless the unsafe override is explicit.
+        std::string text;
+        {
+            std::ifstream in(file, std::ios::binary);
+            text.assign(std::istreambuf_iterator<char>(in), {});
+        }
+        const auto at = text.find("\"max_voltage_v\": 6.0");
+        REQUIRE(at != std::string::npos);
+        std::string hot = text;
+        hot.replace(at, 20, "\"max_voltage_v\": 8.4");
+        auto bad = core::parse_robot_config(hot);
+        CHECK_FALSE(bad.ok());
+        CHECK(bad.error.find("6.0") != std::string::npos);
+        std::string ok = text;
+        ok.replace(at, 20, "\"max_voltage_v\": 8.4, \"allow_unsafe_voltage\": true");
+        auto allowed = core::parse_robot_config(ok);
+        REQUIRE(allowed.ok());
+        CHECK(core::effective_max_voltage(allowed.config->motor) == doctest::Approx(8.4));
     }
 }

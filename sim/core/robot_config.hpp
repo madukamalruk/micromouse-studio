@@ -9,6 +9,11 @@
 
 namespace mmsim::core {
 
+/// Hardware rule: N20 motors on a 2S pack never see more than this many volts.
+inline constexpr double kMotorSafeVoltage = 6.0;
+/// Hardware rule: a motor reversal needs at least this long at 0 V (sim time).
+inline constexpr std::int64_t kReversalDeadUs = 20000;
+
 /// DC gear-motor (one per wheel). SI units; torques at the motor shaft.
 struct MotorConfig {
     double resistance = 10.0;     // ohm
@@ -20,7 +25,17 @@ struct MotorConfig {
     double coulomb = 2e-5;        // N*m (dry friction, also stiction threshold)
     double efficiency = 0.85;     // gearbox, (0, 1]
     double max_voltage = 6.0;     // V; N20 motors on 2S are capped at 6 V (hardware rule)
+    /// Explicit opt-out of the 6.0 V cap and of the reversal dead-time check (test rigs,
+    /// other motors). Off by default; a config above 6.0 V without it is rejected.
+    bool allow_unsafe_voltage = false;
 };
+
+/// The voltage the simulation really applies: max_voltage, capped at 6.0 V unless unsafe.
+inline double effective_max_voltage(const MotorConfig& m) {
+    return m.allow_unsafe_voltage
+               ? m.max_voltage
+               : (m.max_voltage < kMotorSafeVoltage ? m.max_voltage : kMotorSafeVoltage);
+}
 
 /// Rectangular body footprint for collisions; offset_x = centre ahead of the wheel axle.
 struct BodyConfig {

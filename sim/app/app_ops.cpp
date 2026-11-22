@@ -157,11 +157,23 @@ long long advance(AppState& st, long long ms, double budget_s, bool until_cell) 
         },
         std::chrono::milliseconds(2000 + std::max(0ll, ms) +
                                   static_cast<long long>(budget_s * 1000.0)));
+    if (r == host::GuardResult::Faulted) {
+        st.sim_error = "Simulation step failed: " + host::guard_last_error() +
+                       ". Session abandoned; press RESET to reload.";
+        st.session.reset();
+        st.running = false;
+        st.hung = true;
+        return 0;
+    }
     if (r == host::GuardResult::Hung) {
         st.sim_error =
             "Firmware hung: no HAL call for 2 s (endless loop without "
             "hal_delay_ms/hal_wait_tick?). "
-            "Session abandoned; press RESET to reload.";
+            "Session abandoned; press RESET to reload." +
+            (host::guard_leaked_threads() > 1
+                 ? " Warning: " + std::to_string(host::guard_leaked_threads()) +
+                       " hung firmware threads are still burning CPU; restart the app."
+                 : std::string());
         st.session.reset();
         st.running = false;
         st.hung = true;
@@ -185,8 +197,10 @@ void rewind_to(AppState& st, double t_s) {
     const auto r = host::run_guarded(
         st.session, [t_us](host::Session& s) { s.rewind_to(t_us); },
         std::chrono::milliseconds(5000 + t_us / 1000));
-    if (r == host::GuardResult::Hung) {
-        st.sim_error = "Firmware hung during rewind; session abandoned. Press RESET.";
+    if (r != host::GuardResult::Completed) {
+        st.sim_error = r == host::GuardResult::Faulted
+                           ? "Rewind failed: " + host::guard_last_error() + ". Press RESET."
+                           : "Firmware hung during rewind; session abandoned. Press RESET.";
         st.session.reset();
         st.hung = true;
         return;
@@ -496,7 +510,7 @@ an::ReportInput report_input(const AppState& st) {
                          goal ? "yes" : (errored ? "no" : "not yet"), "centre found"});
     in.checks.push_back({"No wall crashes", w.crashes().empty() ? "PASS" : "FAIL",
                          std::to_string(w.crashes().size()), "0"});
-    const double cap = w.config().motor.max_voltage;
+    const double cap = core::effective_max_voltage(w.config().motor);
     const double vmax = std::max(max_abs(ml), max_abs(mr));
     in.checks.push_back({"Motor voltage cap", vmax <= cap + 1e-6 ? "PASS" : "FAIL",
                          fmt("%.2f V", vmax), fmt("<= %.1f V", cap)});

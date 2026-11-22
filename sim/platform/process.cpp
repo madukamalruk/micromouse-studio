@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdio>
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -70,6 +71,8 @@ struct LineQueue {
     std::deque<std::string> lines;
     std::string partial;
     bool eof = false;
+    const char* name = "output";
+    std::size_t dropped = 0;
     static constexpr std::size_t kMaxLine = 1 << 16;  // a runaway line is cut here
     static constexpr std::size_t kMaxLines = 100000;  // and the oldest lines are dropped
 
@@ -89,7 +92,13 @@ struct LineQueue {
         if (!partial.empty() && partial.back() == '\r') partial.pop_back();
         lines.push_back(std::move(partial));
         partial.clear();
-        if (lines.size() > kMaxLines) lines.pop_front();
+        if (lines.size() > kMaxLines) {
+            lines.pop_front();
+            ++dropped;
+            if (dropped == 1 || dropped % 10000 == 0)
+                std::fprintf(stderr, "[process] child %s queue full: %zu line(s) dropped so far\n",
+                             name, dropped);
+        }
     }
     void finish() {
         std::lock_guard<std::mutex> lk(m);
@@ -98,6 +107,31 @@ struct LineQueue {
         cv.notify_all();
     }
 };
+
+/// stdin pipe whose write end (ours) is overlapped, so a write can time out; the read end
+/// (the child's stdin) is an ordinary inheritable synchronous handle.
+bool make_stdin_pipe(HANDLE& child_read, HANDLE& our_write, SECURITY_ATTRIBUTES* inheritable) {
+    static std::atomic<unsigned> counter{0};
+    const std::wstring name = L"\\\\.\\pipe\\mmsim-stdin-" +
+                              std::to_wstring(GetCurrentProcessId()) + L"-" +
+                              std::to_wstring(counter++);
+    our_write = CreateNamedPipeW(
+        name.c_str(), PIPE_ACCESS_OUTBOUND | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_TYPE_BYTE | PIPE_WAIT, 1, 65536, 0, 0, nullptr);
+    if (our_write == INVALID_HANDLE_VALUE) {
+        our_write = nullptr;
+        return false;
+    }
+    child_read = CreateFileW(name.c_str(), GENERIC_READ, 0, inheritable, OPEN_EXISTING,
+                             FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (child_read == INVALID_HANDLE_VALUE) {
+        child_read = nullptr;
+        CloseHandle(our_write);
+        our_write = nullptr;
+        return false;
+    }
+    return true;
+}
 
 void reader_loop(HANDLE h, LineQueue* q) {
     char buf[4096];
@@ -135,6 +169,7 @@ struct ChildProcess::Impl {
         if (process) {
             poll_exit();
             if (!exit_code) {
+                if (job) TerminateJobObject(job, 1);  // descendants too
                 TerminateProcess(process, 1);
                 WaitForSingleObject(process, 5000);
                 DWORD code = 1;
@@ -177,7 +212,7 @@ bool ChildProcess::start(const std::filesystem::path& exe, const std::vector<std
         p_->shutdown();
         return false;
     };
-    if (!CreatePipe(&in_r, &p_->in_w, &sa, 0)) return fail("CreatePipe(stdin)");
+    if (!make_stdin_pipe(in_r, p_->in_w, &sa)) return fail("CreateNamedPipe(stdin)");
     if (!CreatePipe(&p_->out_r, &out_w, &sa, 0)) return fail("CreatePipe(stdout)");
     if (!CreatePipe(&p_->err_r, &err_w, &sa, 0)) return fail("CreatePipe(stderr)");
     // Our ends must not leak into the child (or it would hold its own pipes open).
@@ -207,7 +242,11 @@ bool ChildProcess::start(const std::filesystem::path& exe, const std::vector<std
                         CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
                         dir.empty() ? nullptr : dir.c_str(), &si, &pi))
         return fail("CreateProcess");
-    if (p_->job) AssignProcessToJobObject(p_->job, pi.hProcess);
+    if (p_->job && !AssignProcessToJobObject(p_->job, pi.hProcess))
+        std::fprintf(stderr,
+                     "[process] warning: could not put the solver in a job object (error %lu); "
+                     "it may outlive the simulator\n",
+                     static_cast<unsigned long>(GetLastError()));
     ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
     p_->process = pi.hProcess;
@@ -216,6 +255,8 @@ bool ChildProcess::start(const std::filesystem::path& exe, const std::vector<std
     CloseHandle(out_w);
     CloseHandle(err_w);
 
+    p_->out.name = "stdout";
+    p_->err.name = "stderr";
     p_->out_thread = std::thread(reader_loop, p_->out_r, &p_->out);
     p_->err_thread = std::thread(reader_loop, p_->err_r, &p_->err);
     error.clear();
@@ -224,15 +265,33 @@ bool ChildProcess::start(const std::filesystem::path& exe, const std::vector<std
 
 bool ChildProcess::write(std::string_view data) {
     if (!p_->in_w) return false;
-    while (!data.empty()) {
+    constexpr DWORD kWriteTimeoutMs = 2000;
+    HANDLE ev = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!ev) return false;
+    bool ok = true;
+    while (ok && !data.empty()) {
+        OVERLAPPED ov{};
+        ov.hEvent = ev;
+        ResetEvent(ev);
         DWORD wrote = 0;
-        if (!WriteFile(p_->in_w, data.data(), static_cast<DWORD>(data.size()), &wrote, nullptr)) {
-            p_->close(p_->in_w);
-            return false;
+        if (!WriteFile(p_->in_w, data.data(), static_cast<DWORD>(data.size()), &wrote, &ov)) {
+            if (GetLastError() != ERROR_IO_PENDING) {
+                ok = false;
+            } else if (WaitForSingleObject(ev, kWriteTimeoutMs) != WAIT_OBJECT_0) {
+                // The child stopped reading stdin: cancel instead of blocking the caller.
+                CancelIoEx(p_->in_w, &ov);
+                GetOverlappedResult(p_->in_w, &ov, &wrote, TRUE);
+                std::fprintf(stderr, "[process] solver stdin write timed out (2 s); closing it\n");
+                ok = false;
+            } else if (!GetOverlappedResult(p_->in_w, &ov, &wrote, FALSE)) {
+                ok = false;
+            }
         }
-        data.remove_prefix(wrote);
+        if (ok) data.remove_prefix(wrote);
     }
-    return true;
+    CloseHandle(ev);
+    if (!ok) p_->close(p_->in_w);
+    return ok;
 }
 
 std::optional<std::string> ChildProcess::read_line(std::chrono::milliseconds timeout) {
@@ -250,6 +309,19 @@ std::optional<std::string> ChildProcess::read_line(std::chrono::milliseconds tim
 bool ChildProcess::eof() const {
     std::lock_guard<std::mutex> lk(p_->out.m);
     return p_->out.eof && p_->out.lines.empty();
+}
+
+std::size_t ChildProcess::dropped_lines() const {
+    std::size_t n = 0;
+    {
+        std::lock_guard<std::mutex> lk(p_->out.m);
+        n += p_->out.dropped;
+    }
+    {
+        std::lock_guard<std::mutex> lk(p_->err.m);
+        n += p_->err.dropped;
+    }
+    return n;
 }
 
 std::vector<std::string> ChildProcess::take_stderr_lines() {
@@ -284,6 +356,9 @@ std::optional<int> ChildProcess::exit_code() const {
 void ChildProcess::kill() {
     if (!p_->process) return;
     p_->poll_exit();
+    // Terminate the whole job first: a grandchild that inherited the pipes would otherwise
+    // keep them open and the reader joins below would never return.
+    if (p_->job) TerminateJobObject(p_->job, 1);
     if (!p_->exit_code) {
         TerminateProcess(p_->process, 1);
         WaitForSingleObject(p_->process, 5000);

@@ -248,7 +248,12 @@ MazeLoadResult parse_num(std::string_view text) {
 MazeLoadResult parse_maz(std::span<const std::uint8_t> bytes) {
     int n = 0;
     while ((n + 1) * (n + 1) <= static_cast<int>(bytes.size())) ++n;
-    if (n == 0 || n * n != static_cast<int>(bytes.size()) || n > kMaxDim)
+    if (n > kMaxDim)
+        return MazeLoadResult::fail(0, 0,
+                                    ".maz dimension limit exceeded (" + std::to_string(n) + " x " +
+                                        std::to_string(n) + ", max " + std::to_string(kMaxDim) +
+                                        ")");
+    if (n == 0 || n * n != static_cast<int>(bytes.size()))
         return MazeLoadResult::fail(
             0, 0, ".maz size must be N*N bytes, got " + std::to_string(bytes.size()));
     std::vector<std::uint8_t> raw(bytes.size());

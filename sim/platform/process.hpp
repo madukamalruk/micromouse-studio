@@ -24,12 +24,15 @@ class ChildProcess {
     bool start(const std::filesystem::path& exe, const std::vector<std::string>& args,
                const std::filesystem::path& cwd, std::string& error);
 
-    /// Writes raw bytes to the child's stdin. false if the pipe is closed.
+    /// Writes raw bytes to the child's stdin. false if the pipe is closed, or if the child
+    /// stops reading for 2 s (the pipe is then closed so the caller never hangs).
     bool write(std::string_view data);
     /// Next stdout line; waits up to `timeout`. nullopt on timeout or once stdout reached EOF
     /// and every line was taken (eof() tells which).
     std::optional<std::string> read_line(std::chrono::milliseconds timeout);
     bool eof() const;  // stdout closed and drained
+    /// Lines dropped because a reader queue overflowed (oldest first); 0 normally.
+    std::size_t dropped_lines() const;
     /// stderr lines received so far (removed from the buffer).
     std::vector<std::string> take_stderr_lines();
 

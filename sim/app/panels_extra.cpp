@@ -286,7 +286,7 @@ void panel_config(AppState& st) {
         cfg_field("Mass", Help::CfgMass, &e.mass_g, 0.5, 10.0, 1000.0, "%.0f g");
         cfg_field("Wheel radius", Help::CfgWheel, &e.wheel_radius_mm, 0.05, 5.0, 60.0, "%.2f mm");
         cfg_field("Track width", Help::CfgTrack, &e.track_width_mm, 0.1, 20.0, 200.0, "%.1f mm");
-        cfg_field("Motor max voltage", Help::CfgVoltage, &e.max_voltage, 0.05, 0.5, 12.6, "%.2f V");
+        cfg_field("Motor max voltage", Help::CfgVoltage, &e.max_voltage, 0.05, 0.5, 6.0, "%.2f V");
         cfg_toggle("Tyre slip model", Help::CfgSlip, &e.slip_enabled,
                    e.slip_enabled ? "On" : "Off");
         ImGui::BeginDisabled(!e.slip_enabled);

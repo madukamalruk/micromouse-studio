@@ -6,9 +6,9 @@
 #include "mmhal/hal.h"
 
 typedef struct {
-    int8_t dir;       /* direction of the last voltage applied: -1, 0, +1 */
-    uint16_t idle_ms; /* consecutive ticks at 0 V */
-    uint16_t coast_ms;
+    int8_t dir;             /* direction of the last voltage applied: -1, 0, +1 */
+    uint8_t zeroed;         /* 1 once 0 V has been commanded after driving in `dir` */
+    uint32_t zero_since_ms; /* hal_millis() when that 0 V started */
 } motor_t;
 
 static motor_t g_motor[2];
@@ -17,42 +17,45 @@ static float clampf(float v, float lim) {
     return v > lim ? lim : (v < -lim ? -lim : v);
 }
 
-/* Returns the voltage actually allowed this tick. */
-static float guard(motor_t* m, float volts) {
+/* Returns the voltage actually allowed now. Time based (hal_millis), not call counted: a
+ * reversal is held at 0 V until hal_millis() - zero_since_ms >= MOTOR_REVERSAL_COAST_MS,
+ * whatever the call rate. The coast starts at the first 0 V (or at the first reversal attempt
+ * if the caller flips the sign directly). */
+static float guard(motor_t* m, float volts, uint32_t now_ms) {
     int8_t want = 0;
     if (volts > MOTOR_DEADBAND_VOLTS) want = 1;
     if (volts < -MOTOR_DEADBAND_VOLTS) want = -1;
 
-    if (m->coast_ms > 0) { /* reversal in progress: hold 0 V */
-        --m->coast_ms;
-        ++m->idle_ms;
-        if (m->coast_ms == 0) m->dir = 0;
-        return 0.0f;
-    }
     if (want == 0) {
-        if (m->idle_ms < MOTOR_REVERSAL_COAST_MS) ++m->idle_ms;
-        if (m->idle_ms >= MOTOR_REVERSAL_COAST_MS) m->dir = 0; /* rested long enough */
+        if (m->dir != 0 && !m->zeroed) {
+            m->zeroed = 1;
+            m->zero_since_ms = now_ms;
+        }
         return 0.0f;
     }
     if (m->dir != 0 && want != m->dir) {
-        /* Change of direction: coast for whatever is left of the 20 ms. */
-        const uint16_t left = (uint16_t)(MOTOR_REVERSAL_COAST_MS - m->idle_ms);
-        m->coast_ms = (uint16_t)(left > 0 ? left - 1 : 0);
-        ++m->idle_ms;
-        if (m->coast_ms == 0) m->dir = 0;
-        return 0.0f;
+        if (!m->zeroed) {
+            m->zeroed = 1;
+            m->zero_since_ms = now_ms;
+        }
+        if ((uint32_t)(now_ms - m->zero_since_ms) < (uint32_t)MOTOR_REVERSAL_COAST_MS)
+            return 0.0f; /* still coasting */
     }
     m->dir = want;
-    m->idle_ms = 0;
+    m->zeroed = 0;
     return volts;
 }
 
 void motors_set_volts(float left, float right) {
     float vbat = hal_battery_voltage();
     if (vbat < 1.0f) vbat = 1.0f;
-    const float lim = vbat < MOTOR_MAX_VOLTS ? vbat : MOTOR_MAX_VOLTS;
-    const float vl = guard(&g_motor[0], clampf(left, lim));
-    const float vr = guard(&g_motor[1], clampf(right, lim));
+    /* Never above the 6 V motor cap, and never above 95 % duty even when the pack sags below
+     * 6 V (100 % PWM is forbidden). */
+    const float duty_lim = 0.95f * vbat;
+    const float lim = duty_lim < MOTOR_MAX_VOLTS ? duty_lim : MOTOR_MAX_VOLTS;
+    const uint32_t now = hal_millis();
+    const float vl = guard(&g_motor[0], clampf(left, lim), now);
+    const float vr = guard(&g_motor[1], clampf(right, lim), now);
     hal_motor_set_duty(HAL_LEFT, vl / vbat);
     hal_motor_set_duty(HAL_RIGHT, vr / vbat);
 }
@@ -64,8 +67,8 @@ void motors_stop(void) {
 void motors_reset(void) {
     for (int i = 0; i < 2; ++i) {
         g_motor[i].dir = 0;
-        g_motor[i].idle_ms = MOTOR_REVERSAL_COAST_MS;
-        g_motor[i].coast_ms = 0;
+        g_motor[i].zeroed = 0;
+        g_motor[i].zero_since_ms = 0;
     }
     hal_motor_set_duty(HAL_LEFT, 0.0f);
     hal_motor_set_duty(HAL_RIGHT, 0.0f);

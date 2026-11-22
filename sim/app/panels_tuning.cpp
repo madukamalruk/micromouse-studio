@@ -173,8 +173,8 @@ void panel_battery(AppState& st) {
     ui::value_row(Help::BrownoutMargin, "Brownout margin", "%+.2f V over %.1f V", margin,
                   bc.reset_v);
     ui::value_row(Help::MotorCap, "Motor cap", "%.1f V = %.0f %% duty",
-                  w.config().motor.max_voltage,
-                  100.0 * w.config().motor.max_voltage / std::max(0.1, vb));
+                  core::effective_max_voltage(w.config().motor),
+                  100.0 * core::effective_max_voltage(w.config().motor) / std::max(0.1, vb));
     ui::value_row(Help::PackCurrent, "Pack current", "%.2f A", w.battery_current());
     ui::value_row(Help::ChargeUsed, "Charge used", "%.1f of %.0f mAh", w.charge_used_mah(),
                   bc.capacity_mah);

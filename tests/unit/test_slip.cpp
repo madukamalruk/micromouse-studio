@@ -26,6 +26,7 @@ RobotConfig slip_robot(double mu = 1.0) {
     c.slip.enabled = true;
     c.slip.mu = mu;
     c.motor.max_voltage = 100.0;  // allow hard steps in tests
+    c.motor.allow_unsafe_voltage = true;
     c.sensors.clear();
     c.imu = ImuConfig{};
     return c;

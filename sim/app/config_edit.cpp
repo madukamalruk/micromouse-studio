@@ -1,5 +1,7 @@
 #include "sim/app/config_edit.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <fstream>
 
@@ -31,6 +33,16 @@ ConfigEdit edit_from_config(const core::RobotConfig& c) {
 }
 
 namespace {
+/// CON, PRN, AUX, NUL, COM1-9, LPT1-9 (any case, with or without an extension).
+bool is_reserved_windows_name(const std::string& stem) {
+    std::string s = stem.substr(0, stem.find('.'));
+    while (!s.empty() && s.back() == ' ') s.pop_back();
+    for (char& ch : s) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    if (s == "CON" || s == "PRN" || s == "AUX" || s == "NUL") return true;
+    return s.size() == 4 && (s.compare(0, 3, "COM") == 0 || s.compare(0, 3, "LPT") == 0) &&
+           s[3] >= '1' && s[3] <= '9';
+}
+
 bool changed(double a, double b) {
     return std::fabs(a - b) > 1e-9;
 }
@@ -44,7 +56,9 @@ void apply_edit(const ConfigEdit& e, core::RobotConfig& c) {
     if (changed(e.wheel_radius_mm, base.wheel_radius_mm))
         c.wheel_radius = e.wheel_radius_mm / 1000.0;
     if (changed(e.track_width_mm, base.track_width_mm)) c.track_width = e.track_width_mm / 1000.0;
-    c.motor.max_voltage = e.max_voltage;
+    c.motor.max_voltage = c.motor.allow_unsafe_voltage
+                              ? e.max_voltage
+                              : std::min(e.max_voltage, core::kMotorSafeVoltage);
     c.slip.enabled = e.slip_enabled;
     if (changed(e.tyre_mu, base.tyre_mu)) c.slip.mu = e.tyre_mu;
     c.battery.model = e.battery_model;
@@ -73,9 +87,8 @@ std::vector<ConfigIssue> validate_edit(const ConfigEdit& e) {
     if (e.has_sensors && !(e.sensor_range_mm > 0.0)) err("Sensor range must be above 0 mm.");
     if (e.noise_sigma < 0.0 || e.noise_rel_pct < 0.0) err("Sensor noise cannot be negative.");
     if (e.max_voltage > kMotorVoltageLimit)
-        v.push_back({IssueLevel::Warn,
-                     "Motor voltage above 6.0 V: N20 motors on a 2S pack must stay at or below "
-                     "6.0 V. The simulation allows it, a real robot would be damaged."});
+        err("Motor voltage above 6.0 V is not allowed: N20 motors on a 2S pack must stay at or "
+            "below 6.0 V (the simulation caps it).");
     return v;
 }
 
@@ -109,6 +122,11 @@ bool save_config_copy(const core::RobotConfig& c, const fs::path& dir, const std
         error = "The file name has characters Windows does not allow.";
         return false;
     }
+    if (is_reserved_windows_name(stem)) {
+        error = "'" + stem + "' is a reserved Windows device name; pick another name.";
+        return false;
+    }
+
     std::error_code ec;
     fs::create_directories(dir, ec);
     out = dir / (stem + ".json");

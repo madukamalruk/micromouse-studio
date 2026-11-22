@@ -80,6 +80,8 @@ const std::vector<Flag<RobotConfig>>& flags() {
         {"encoder.invert_left", [](RobotConfig& c) -> bool& { return c.encoder.invert_left; }},
         {"encoder.invert_right", [](RobotConfig& c) -> bool& { return c.encoder.invert_right; }},
         {"slip.enabled", [](RobotConfig& c) -> bool& { return c.slip.enabled; }},
+        {"motor.allow_unsafe_voltage",
+         [](RobotConfig& c) -> bool& { return c.motor.allow_unsafe_voltage; }},
         {"battery.model", [](RobotConfig& c) -> bool& { return c.battery.model; }},
     };
     return f;
@@ -288,6 +290,10 @@ RobotConfigResult parse_robot_config(std::string_view text) {
         if (!v->is_boolean()) return fail(std::string("key '") + f.key + "' must be true/false");
         f.ref(c) = v->get<bool>();
     }
+    if (c.motor.max_voltage > kMotorSafeVoltage && !c.motor.allow_unsafe_voltage)
+        return fail("key 'motor.max_voltage_v' must be <= 6.0 V (N20 motors on 2S; got " +
+                    fmt(c.motor.max_voltage) +
+                    "); set 'motor.allow_unsafe_voltage' to true to override");
 
     // Sensors: a preset layout and/or an explicit list (the list wins if both are given).
     if (const json* lay = lookup(j, "sensor_layout")) {

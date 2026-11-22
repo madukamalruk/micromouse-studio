@@ -55,7 +55,7 @@ Pose integrate_pose(const Pose& p, double v, double w, double dt) {
 }
 
 DriveModel::DriveModel(const RobotConfig& c)
-    : r_(c.wheel_radius), b_(c.track_width), vmax_(c.motor.max_voltage) {
+    : r_(c.wheel_radius), b_(c.track_width), vmax_(effective_max_voltage(c.motor)) {
     const MotorConfig& m = c.motor;
     const double G = m.gear_ratio;
     const double J = c.wheel_inertia + m.rotor_inertia * G * G;

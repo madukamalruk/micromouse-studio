@@ -174,11 +174,22 @@ class Session final : public HalBackend {
     bool mms_exit_logged_ = false;
 };
 
-enum class GuardResult { Completed, Hung };
+enum class GuardResult {
+    Completed,
+    Hung,    // no progress within the wall timeout; worker abandoned
+    Faulted  // the work threw; guard_last_error() says what
+};
+
+/// Worker threads abandoned after a hang that are still running (their firmware is spinning).
+/// A thread that finishes late removes itself from this count.
+int guard_leaked_threads();
+/// Message of the last exception caught by run_guarded (empty if none).
+std::string guard_last_error();
 
 /// Runs session->run_ms(ms) on a worker thread. If it does not finish within wall_timeout
 /// (firmware spinning without HAL calls), returns Hung and abandons the worker: the session
-/// must not be used again (the shared_ptr keeps it alive for the detached thread).
+/// must not be used again (the shared_ptr keeps it alive for the detached thread). An exception
+/// thrown by the work is caught and reported as Faulted instead of terminating the process.
 GuardResult run_guarded(std::shared_ptr<Session> session, std::uint32_t ms,
                         std::chrono::milliseconds wall_timeout);
 /// Same guard around arbitrary work on the session (e.g. stepping + sampling a path trace).
