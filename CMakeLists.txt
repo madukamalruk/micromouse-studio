@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(mmsim VERSION 0.2.2 LANGUAGES C CXX RC)
+project(mmsim VERSION 0.2.3 LANGUAGES C CXX RC)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)

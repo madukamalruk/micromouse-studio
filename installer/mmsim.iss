@@ -1,10 +1,10 @@
 ; Inno Setup 6 script for Micromouse Studio (MMSim).
 ; Build with tools/build_installer.ps1, which passes the defines below:
-;   /DAppVersion=0.2.2  /DStageDir=<dist\mmsim-v0.2.2-win64>  /DRepoRoot=<repo>  /DOutName=MMSim-v0.2.2-Setup
+;   /DAppVersion=0.2.3  /DStageDir=<dist\mmsim-v0.2.3-win64>  /DRepoRoot=<repo>  /DOutName=MMSim-v0.2.3-Setup
 ; The stage folder is the same one the portable zip is made from (tools/package_release.ps1).
 
 #ifndef AppVersion
-  #define AppVersion "0.2.2"
+  #define AppVersion "0.2.3"
 #endif
 #ifndef RepoRoot
   #define RepoRoot ".."

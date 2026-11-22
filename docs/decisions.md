@@ -132,3 +132,8 @@ lots); Web UI + C++ backend (two codebases); MSVC Build Tools (different compile
 - **Process hardening:** `TerminateJobObject` on kill, 2 s overlapped stdin write timeout, dropped-line counter, job-assign warning; `run_guarded` reports exceptions as `Faulted` and counts leaked threads.
 - **Small fixes:** zero-distance ray guard, per-monitor DPI, Windows reserved device names rejected on Save Copy, `.maz` dimension-limit message.
 - **Side effect:** the new reversal rule changes firmware trajectories slightly (e.g. `gen16_loops_b` 44.3 s -> 42.3 s); every maze that solved before still solves.
+
+## D19 - 2026-11-22 · v0.2.3: built-in MIT maze library, 2.5D clickability fix, startup defaults & UI polish
+- **Canvas chip clickability:** `ImGui::SetNextItemAllowOverlap()` before `InvisibleButton("canvas")` stops the canvas from swallowing `[2D]`, `[2.5D]` and `[Fit]` clicks; `draw_iso` renders below the chip strip, hides orphan posts at zero-wall intersections, keeps Cockpit clean of Studio overlays, and adds a bottom-left pan/zoom hint.
+- **Built-in MIT maze library:** `tools/gen_mazes.py` generates 16 Classic 16x16 (`mazes/classic/`), 6 16x16-boxed Training (`mazes/training/`, enclosing `(0,0)` to `(7,7)-(8,8)` so `MAZE_SIZE 16` C firmware solves 22/22) and 4 Half-size 32x32 (`mazes/halfsize/`) mazes alongside `mazes/test/`, all bundled in both the portable zip and the Windows installer.
+- **Defaults & panel polish:** fresh GUI starts preload `classic_tournament_01` and `demo_floodfill.dll` in Ready/paused state (only explicit CLI launches auto-start); fixed Attitude panel `"Target: --"` clipping, Faceplate `GO` disabled guard on load errors, `panel_sensors` minimum bar width clamp, and `panel_battery` live cache key invalidation.

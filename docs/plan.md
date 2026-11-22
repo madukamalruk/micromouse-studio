@@ -280,3 +280,4 @@ Next: demo firmware robustness on the 33 failing classic mazes is a separate fol
 Slice 11 (v0.2.0, 2026-11-22): UI/UX polish with `(?)` help on every plot and gauge, attitude compass, Move & Firmware Details log, robot config editor, race timer and attempt tracker, `mmsim.ico`, per-user data folder, Inno Setup installer (D16). Local only until the owner reviews the verification report; no push, no tag.
 Slice 12 (v0.2.1, 2026-11-22): audit fixes D17 - 6 V cap and 20 ms reversal dead-time in firmware and sim, process/pipe timeouts, guard fault reporting.
 Slice 13 (v0.2.2, 2026-11-22): 2.5D isometric overhaul D18 - Cockpit/Studio toggle, pan/zoom, 3D chassis and corner posts, painter depth sort, persisted preference, iso render test.
+Slice 14 (v0.2.3, 2026-11-22): Full UI/maze audit fixes D19 - SetNextItemAllowOverlap for 2D/2.5D/Fit chips, orphan post culling, 32 built-in MIT mazes bundled, fresh startup defaults, Attitude/Faceplate/Sensors/Battery panel fixes.
