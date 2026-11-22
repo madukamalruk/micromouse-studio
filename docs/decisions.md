@@ -127,3 +127,9 @@ Format: date · decision · why · alternatives considered.
 - **Compass:** bearing = wrap360(90 - theta), clockwise from north; the target tick is the firmware `hdg_target` channel (dir * 90).
 - **Known cosmetic gap:** the VERSIONINFO block of mmsim.exe is overridden by the winpthread resource linked first; the icon resource is unaffected. Installer and Apps & Features show the right version.
 - **Alternatives:** WiX/MSI (heavier, needs admin by default); NSIS (no good built-in modern wizard); always writing next to the exe (breaks under Program Files).
+
+## D17 - 2026-11-22 · v0.2.1: hardware-safety invariants and process hardening
+- **6 V / 20 ms enforced everywhere:** firmware `motors.c` caps at min(6.0 V, 95 % of V_BAT) and holds a reversal at 0 V until `hal_millis()` shows 20 ms (time based, not call counted). The simulator clamps `motor.max_voltage` to 6.0 V (config rejected above that unless `motor.allow_unsafe_voltage`, used only by physics/slip tests) and `World` forces 0 V on a reversal inside 20 ms of sim time, counting `reversal_violations()`.
+- **Process hardening:** `TerminateJobObject` on kill, 2 s overlapped stdin write timeout, dropped-line counter, job-assign warning; `run_guarded` reports exceptions as `Faulted` and counts leaked threads.
+- **Small fixes:** zero-distance ray guard, per-monitor DPI, Windows reserved device names rejected on Save Copy, `.maz` dimension-limit message.
+- **Side effect:** the new reversal rule changes firmware trajectories slightly (e.g. `gen16_loops_b` 44.3 s -> 42.3 s); every maze that solved before still solves.
