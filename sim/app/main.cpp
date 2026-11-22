@@ -64,6 +64,7 @@ struct Args {
     bool hidden = false;
     bool software = false;
     bool verify_render = false;
+    bool iso = false;
     bool no_session = false;
     bool portable = false;
     bool seed_given = false, speed_given = false;
@@ -93,6 +94,7 @@ void print_usage() {
         "  --exit               exit after --frames\n"
         "  --size WxH           window size (default 1280x800)\n"
         "  --hidden             hidden window (with --software for headless checks)\n"
+        "  --iso                start in 2.5D isometric view\n"
         "  --software           SDL software renderer (diagnostic only; drops thin walls)\n"
         "  --verify-render      pixel-check walls/posts against the maze; exit 1 on mismatch\n"
         "  --no-session         do not restore/save the last session (mmsim.json, imgui.ini)\n"
@@ -192,6 +194,8 @@ std::optional<Args> parse_args(int argc, char** argv) {
             a.exit_after = true;
         } else if (s == "--hidden") {
             a.hidden = true;
+        } else if (s == "--iso") {
+            a.iso = true;
         } else if (s == "--software") {
             a.software = true;
         } else if (s == "--verify-render") {
@@ -923,9 +927,11 @@ void register_actions(AppState& st, Audio& audio) {
                const int w = static_cast<int>(s->workspace);
                s->need_fit[w] = true;
                s->user_moved[w] = false;
+               s->iso_pan[w] = {0.0f, 0.0f};
+               s->iso_zoom[w] = 1.0f;
                return std::string("");
            }});
-    r.add({"iso", "", "View", "Toggle the 2.5D isometric maze (Studio)", "", [s](const auto&) {
+    r.add({"iso", "I", "View", "Toggle the 2.5D isometric maze view (Cockpit / Studio)", "", [s](const auto&) {
                s->iso = !s->iso;
                return std::string(s->iso ? "2.5D view" : "2D view");
            }});
@@ -1097,6 +1103,7 @@ void handle_shortcuts(AppState& st) {
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) st.actions.trigger("toggle");
     if (ImGui::IsKeyPressed(ImGuiKey_R, false)) st.actions.trigger(io.KeyCtrl ? "reload" : "reset");
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) st.actions.trigger("fit");
+    if (ImGui::IsKeyPressed(ImGuiKey_I, false)) toast(st, st.actions.trigger("iso"));
     if (ImGui::IsKeyPressed(ImGuiKey_N, false)) st.actions.trigger("next-cell");
     if (ImGui::IsKeyPressed(ImGuiKey_M, false)) toast(st, st.actions.trigger("mute"));
     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) && st.session && !st.running)
@@ -1290,6 +1297,7 @@ int main(int argc, char** argv) {
         st.timer_audio = saved.timer_audio;
         st.details_open = saved.details_open;
         st.timer.set_preset_minutes(saved.timer_minutes);
+        st.iso = saved.iso;
         if (saved.layout_version < kLayoutVersion)  // layouts changed in v0.2.0: rebuild once
             for (int& ls : st.layout_state) ls = 2;
     }
@@ -1301,6 +1309,7 @@ int main(int argc, char** argv) {
         if (auto m = ui::parse_mode(*args.mode)) st.mode = *m;
     if (args.workspace)
         if (auto w = ui::parse_workspace(*args.workspace)) set_workspace(st, *w);
+    if (args.iso) st.iso = true;
     if (args.verify_render)
         st.workspace = ui::Workspace::Cockpit;  // pixel probes need the plain 2-D maze
     st.seed = args.seed;
@@ -1559,6 +1568,7 @@ int main(int argc, char** argv) {
         now.timer_audio = st.timer_audio;
         now.details_open = st.details_open;
         now.timer_minutes = st.timer.preset_minutes();
+        now.iso = st.iso;
         std::string serr;
         if (!save_settings(settings_file, now, serr))
             std::fprintf(stderr, "warning: %s\n", serr.c_str());

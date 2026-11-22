@@ -119,6 +119,11 @@ function(mmsim_render_test name maze size)
 endfunction()
 
 mmsim_render_test(tiny4x4 "${PROJECT_SOURCE_DIR}/mazes/test/tiny4x4.txt" 1280x800)
+add_test(NAME app.render_iso_tiny4x4
+    COMMAND mmsim --maze "${PROJECT_SOURCE_DIR}/mazes/test/tiny4x4.txt" --iso --hidden --size 1280x800 --frames 6 --exit
+            --screenshot "${CMAKE_BINARY_DIR}/screenshots/tiny4x4_iso.png")
+set_tests_properties(app.render_iso_tiny4x4 PROPERTIES LABELS "app;maze;visual;iso"
+    ENVIRONMENT_MODIFICATION "${MMSIM_TEST_ENV}")
 if(EXISTS "${MAZEFILES}/classic/uk1987f.txt")
     mmsim_render_test(uk1987f "${MAZEFILES}/classic/uk1987f.txt" 1280x800)
     mmsim_render_test(japan2010hef_32x32 "${MAZEFILES}/halfsize/japan2010hef.txt" 2400x1600)

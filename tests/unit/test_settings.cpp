@@ -33,6 +33,7 @@ TEST_SUITE("app") {
         s.workspace = "studio";
         s.mode = "beginner";
         s.muted = true;
+        s.iso = true;
         std::string err;
         REQUIRE(mmsim::app::save_settings(dir / "mmsim.json", s, err));
         CHECK_FALSE(fs::exists(dir / "mmsim.json.tmp"));
@@ -50,6 +51,7 @@ TEST_SUITE("app") {
         CHECK(r.workspace == "studio");
         CHECK(r.mode == "beginner");
         CHECK(r.muted);
+        CHECK(r.iso);
     }
 
     TEST_CASE("settings: missing file = defaults; corrupt file = defaults + error") {

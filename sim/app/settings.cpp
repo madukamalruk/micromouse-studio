@@ -69,6 +69,7 @@ bool load_settings(const fs::path& file, AppSettings& out, std::string& error) {
     get(j, "timer_audio", out.timer_audio);
     get(j, "details_open", out.details_open);
     get(j, "timer_minutes", out.timer_minutes);
+    get(j, "iso", out.iso);
     return true;
 }
 
@@ -91,6 +92,7 @@ bool save_settings(const fs::path& file, const AppSettings& s, std::string& erro
     j["timer_audio"] = s.timer_audio;
     j["details_open"] = s.details_open;
     j["timer_minutes"] = s.timer_minutes;
+    j["iso"] = s.iso;
     const fs::path tmp = fs::path(file).concat(".tmp");
     {
         std::ofstream f(tmp, std::ios::binary | std::ios::trunc);

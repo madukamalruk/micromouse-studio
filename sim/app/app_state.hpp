@@ -121,9 +121,11 @@ struct AppState {
     // 1 = build the default layout on first visit if none was restored, 2 = rebuild now.
     int layout_state[ui::kWorkspaceCount] = {1, 1, 1, 1};
 
-    // Studio
+    // View modes
     HeatLayer heat = HeatLayer::PeakSpeed;
     bool iso = false;
+    Vec2 iso_pan[ui::kWorkspaceCount] = {{0.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}};
+    float iso_zoom[ui::kWorkspaceCount] = {1.0f, 1.0f, 1.0f, 1.0f};
     bool show_route = true;
     std::optional<core::Cell> inspect;  // selected cell
     std::optional<core::Cell> hover;

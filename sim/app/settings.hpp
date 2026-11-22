@@ -27,6 +27,7 @@ struct AppSettings {
     bool timer_audio = true;
     bool details_open = true;
     int timer_minutes = 5;
+    bool iso = false;
 };
 inline constexpr int kLayoutVersion = 2;
 

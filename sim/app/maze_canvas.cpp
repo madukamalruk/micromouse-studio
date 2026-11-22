@@ -110,7 +110,7 @@ void draw_cell_marker(const AppState& st, ImDrawList* dl, const Camera& cam, cor
     dl->AddRect(a, b, theme::u32(col), 3.0f, 0, thick);
 }
 
-// --- 2.5D isometric view (Studio) -------------------------------------------------------------
+// --- 2.5D isometric view (Cockpit & Studio) --------------------------------------------------
 struct Iso {
     ImVec2 origin;
     float s = 10.0f;  // pixels per metre
@@ -121,22 +121,30 @@ struct Iso {
     }
 };
 
-void draw_iso(AppState& st, ImDrawList* dl, ImVec2 p0, ImVec2 size) {
+void draw_iso(AppState& st, ImDrawList* dl, ImVec2 p0, ImVec2 size, int ws) {
     if (!st.maze) return;
     const auto& m = *st.maze;
     const double c = st.dims.cell, t = st.dims.wall * 0.5, h = 0.05;  // 50 mm walls
     const double W = m.width() * c, H = m.height() * c;
-    // Fit: projected extents x in [-H*cos30, W*cos30], y in [0, (W+H)/2 + h].
     const double ex = (W + H) * 0.8660254, ey = (W + H) * 0.5 + h;
+
+    const float zoom = ws >= 0 && ws < ui::kWorkspaceCount ? st.iso_zoom[ws] : 1.0f;
+    const ImVec2 pan = ws >= 0 && ws < ui::kWorkspaceCount
+                           ? ImVec2{static_cast<float>(st.iso_pan[ws].x),
+                                    static_cast<float>(st.iso_pan[ws].y)}
+                           : ImVec2{0.0f, 0.0f};
+
     Iso iso;
-    iso.s = static_cast<float>(std::min(size.x / ex, size.y / ey) * 0.92);
-    iso.origin = {p0.x + size.x * 0.5f - static_cast<float>((W - H) * 0.8660254 * 0.5) * iso.s,
-                  p0.y + size.y * 0.5f + static_cast<float>(ey * 0.5) * iso.s};
+    iso.s = static_cast<float>(std::min(size.x / ex, size.y / ey) * 0.92) * zoom;
+    iso.origin = {p0.x + size.x * 0.5f - static_cast<float>((W - H) * 0.8660254 * 0.5) * iso.s + pan.x,
+                  p0.y + size.y * 0.5f + static_cast<float>(ey * 0.5) * iso.s + pan.y};
+
     auto quad = [&](ImVec2 a, ImVec2 b, ImVec2 cc, ImVec2 d, ImU32 col) {
         dl->AddQuadFilled(a, b, cc, d, col);
     };
-    // Floor cells (with heat), far (high x+y) first.
-    for (int s = m.width() + m.height() - 2; s >= 0; --s)
+
+    // 1. Floor cells (with heat), far (high x+y) to near (low x+y).
+    for (int s = m.width() + m.height() - 2; s >= 0; --s) {
         for (int x = 0; x < m.width(); ++x) {
             const int y = s - x;
             if (y < 0 || y >= m.height()) continue;
@@ -149,7 +157,9 @@ void draw_iso(AppState& st, ImDrawList* dl, ImVec2 p0, ImVec2 size) {
                  iso.at((x + 1) * c, (y + 1) * c, 0), iso.at(x * c, (y + 1) * c, 0),
                  theme::u32(col));
         }
-    // Route on the floor.
+    }
+
+    // 2. Route on the floor.
     const auto& plan = studio_plan(st);
     if (st.show_route && plan.path && plan.path->cells.size() >= 2) {
         const auto& cells = plan.path->cells;
@@ -160,63 +170,207 @@ void draw_iso(AppState& st, ImDrawList* dl, ImVec2 p0, ImVec2 size) {
                         theme::u32(diag ? tok::warn : tok::accent, 0.95f), 2.5f);
         }
     }
-    // Walls: south and west edges of every cell + the outer north/east, painter's order.
-    struct Wall {
-        double x0, y0, x1, y1;
-        double depth;
-    };
-    std::vector<Wall> walls;
-    for (int y = 0; y < m.height(); ++y)
-        for (int x = 0; x < m.width(); ++x) {
-            if (m.has_wall(x, y, core::Dir::S))
-                walls.push_back({x * c, y * c - t, (x + 1) * c, y * c + t, 0});
-            if (m.has_wall(x, y, core::Dir::W))
-                walls.push_back({x * c - t, y * c, x * c + t, (y + 1) * c, 0});
-            if (y == m.height() - 1 && m.has_wall(x, y, core::Dir::N))
-                walls.push_back({x * c, H - t, (x + 1) * c, H + t, 0});
-            if (x == m.width() - 1 && m.has_wall(x, y, core::Dir::E))
-                walls.push_back({W - t, y * c, W + t, (y + 1) * c, 0});
+
+    // 3. Path trace on the floor.
+    if (st.robot_view.show_trace && !st.trace.points().empty()) {
+        const auto& pts = st.trace.points();
+        const std::size_t stride = std::max<std::size_t>(1, pts.size() / 2000);
+        for (std::size_t i = stride; i < pts.size(); i += stride) {
+            dl->AddLine(iso.at(pts[i - stride].x, pts[i - stride].y, 0.001),
+                        iso.at(pts[i].x, pts[i].y, 0.001),
+                        theme::u32(tok::accent, 0.65f), 1.8f);
         }
-    for (auto& w : walls) w.depth = w.x0 + w.x1 + w.y0 + w.y1;
-    std::sort(walls.begin(), walls.end(),
-              [](const Wall& a, const Wall& b) { return a.depth > b.depth; });
+    }
+
+    // 4. Unified 3D Objects: Walls, Posts, and Robot.
+    enum class ObjType { Wall, Post, Robot };
+    struct IsoObj {
+        ObjType type;
+        double depth;
+        double x0, y0, x1, y1;
+        double px, py;
+    };
+    std::vector<IsoObj> objs;
+    objs.reserve(m.width() * m.height() * 2 + (m.width() + 1) * (m.height() + 1) + 4);
+
+    // Walls
+    for (int y = 0; y < m.height(); ++y) {
+        for (int x = 0; x < m.width(); ++x) {
+            if (m.has_wall(x, y, core::Dir::S)) {
+                IsoObj o{};
+                o.type = ObjType::Wall;
+                o.x0 = x * c; o.y0 = y * c - t; o.x1 = (x + 1) * c; o.y1 = y * c + t;
+                o.depth = (o.x0 + o.x1 + o.y0 + o.y1) * 0.5;
+                objs.push_back(o);
+            }
+            if (m.has_wall(x, y, core::Dir::W)) {
+                IsoObj o{};
+                o.type = ObjType::Wall;
+                o.x0 = x * c - t; o.y0 = y * c; o.x1 = x * c + t; o.y1 = (y + 1) * c;
+                o.depth = (o.x0 + o.x1 + o.y0 + o.y1) * 0.5;
+                objs.push_back(o);
+            }
+            if (y == m.height() - 1 && m.has_wall(x, y, core::Dir::N)) {
+                IsoObj o{};
+                o.type = ObjType::Wall;
+                o.x0 = x * c; o.y0 = H - t; o.x1 = (x + 1) * c; o.y1 = H + t;
+                o.depth = (o.x0 + o.x1 + o.y0 + o.y1) * 0.5;
+                objs.push_back(o);
+            }
+            if (x == m.width() - 1 && m.has_wall(x, y, core::Dir::E)) {
+                IsoObj o{};
+                o.type = ObjType::Wall;
+                o.x0 = W - t; o.y0 = y * c; o.x1 = W + t; o.y1 = (y + 1) * c;
+                o.depth = (o.x0 + o.x1 + o.y0 + o.y1) * 0.5;
+                objs.push_back(o);
+            }
+        }
+    }
+
+    // Corner posts (pillars) at grid intersections where walls meet
+    for (int py = 0; py <= m.height(); ++py) {
+        for (int px = 0; px <= m.width(); ++px) {
+            IsoObj o{};
+            o.type = ObjType::Post;
+            o.px = px * c; o.py = py * c;
+            o.depth = o.px + o.py;
+            objs.push_back(o);
+        }
+    }
+
+    // Robot in 3D
+    if (st.session) {
+        const auto& p = st.session->world().drive().pose;
+        IsoObj o{};
+        o.type = ObjType::Robot;
+        o.depth = p.x + p.y;
+        objs.push_back(o);
+    }
+
+    // Sort descending by depth: farthest (large depth) first, nearest (small depth) last
+    std::sort(objs.begin(), objs.end(), [](const IsoObj& a, const IsoObj& b) {
+        if (std::abs(a.depth - b.depth) > 1e-6) return a.depth > b.depth;
+        return static_cast<int>(a.type) < static_cast<int>(b.type);
+    });
+
     const ImU32 top = theme::u32(colors::kWall),
                 left = theme::u32(mix(colors::kWall, tok::canvas, 0.45f)),
                 right = theme::u32(mix(colors::kWall, tok::canvas, 0.30f));
-    for (const auto& w : walls) {
-        // Visible faces from the viewer (looking towards +x +y): the y0 face and the x0 face.
-        quad(iso.at(w.x0, w.y0, 0), iso.at(w.x1, w.y0, 0), iso.at(w.x1, w.y0, h),
-             iso.at(w.x0, w.y0, h), right);
-        quad(iso.at(w.x0, w.y0, 0), iso.at(w.x0, w.y1, 0), iso.at(w.x0, w.y1, h),
-             iso.at(w.x0, w.y0, h), left);
-        quad(iso.at(w.x0, w.y0, h), iso.at(w.x1, w.y0, h), iso.at(w.x1, w.y1, h),
-             iso.at(w.x0, w.y1, h), top);
-    }
-    // Robot marker.
-    if (st.session) {
-        const auto& p = st.session->world().drive().pose;
-        const ImVec2 q = iso.at(p.x, p.y, 0.02);
-        dl->AddCircleFilled(q, std::max(4.0f, iso.s * 0.03f), theme::u32(tok::accent));
-        dl->AddCircle(q, std::max(4.0f, iso.s * 0.03f) + 2.0f, theme::u32(tok::text), 0, 1.5f);
+    const ImU32 post_top = theme::u32(colors::kPost),
+                post_left = theme::u32(mix(colors::kPost, tok::canvas, 0.45f)),
+                post_right = theme::u32(mix(colors::kPost, tok::canvas, 0.30f));
+
+    for (const auto& o : objs) {
+        if (o.type == ObjType::Wall) {
+            quad(iso.at(o.x0, o.y0, 0), iso.at(o.x1, o.y0, 0), iso.at(o.x1, o.y0, h),
+                 iso.at(o.x0, o.y0, h), right);
+            quad(iso.at(o.x0, o.y0, 0), iso.at(o.x0, o.y1, 0), iso.at(o.x0, o.y1, h),
+                 iso.at(o.x0, o.y0, h), left);
+            quad(iso.at(o.x0, o.y0, h), iso.at(o.x1, o.y0, h), iso.at(o.x1, o.y1, h),
+                 iso.at(o.x0, o.y1, h), top);
+        } else if (o.type == ObjType::Post) {
+            const double px = o.px, py = o.py;
+            quad(iso.at(px - t, py - t, 0), iso.at(px + t, py - t, 0), iso.at(px + t, py - t, h),
+                 iso.at(px - t, py - t, h), post_right);
+            quad(iso.at(px - t, py - t, 0), iso.at(px - t, py + t, 0), iso.at(px - t, py + t, h),
+                 iso.at(px - t, py - t, h), post_left);
+            quad(iso.at(px - t, py - t, h), iso.at(px + t, py - t, h), iso.at(px + t, py + t, h),
+                 iso.at(px - t, py + t, h), post_top);
+        } else if (o.type == ObjType::Robot && st.session) {
+            const auto& p = st.session->world().drive().pose;
+            const double L = st.robot ? st.robot->body.length : 0.080;
+            const double W = st.robot ? st.robot->body.width : 0.065;
+            const double x_off = st.robot ? st.robot->body.offset_x : 0.010;
+            const double hr = 0.022; // 22 mm chassis height
+            const double ct = std::cos(p.theta), sth = std::sin(p.theta);
+            auto rrot = [&](double lx, double ly, double lz) -> ImVec2 {
+                const double wx = p.x + lx * ct - ly * sth;
+                const double wy = p.y + lx * sth + ly * ct;
+                return iso.at(wx, wy, lz);
+            };
+
+            // 3D Directional Chassis Wedge
+            const double fx = L * 0.50 + x_off, rx = -L * 0.45 + x_off, hy = W * 0.50;
+            const ImVec2 b0 = rrot(fx, 0, 0.003), b1 = rrot(fx * 0.4, hy, 0.003),
+                         b2 = rrot(rx, hy, 0.003), b3 = rrot(rx, -hy, 0.003),
+                         b4 = rrot(fx * 0.4, -hy, 0.003);
+            const ImVec2 t0 = rrot(fx, 0, hr), t1 = rrot(fx * 0.4, hy, hr),
+                         t2 = rrot(rx, hy, hr), t3 = rrot(rx, -hy, hr),
+                         t4 = rrot(fx * 0.4, -hy, hr);
+
+            // Shadow on floor
+            dl->AddQuadFilled(b1, b2, b3, b4, theme::u32(tok::canvas, 0.6f));
+
+            // Extruded Side Panels
+            const ImU32 rside1 = theme::u32(mix(tok::accent, tok::canvas, 0.35f));
+            const ImU32 rside2 = theme::u32(mix(tok::accent, tok::canvas, 0.50f));
+            quad(b3, b2, t2, t3, rside2); // Rear face
+            quad(b2, b1, t1, t2, rside1); // Left face
+            quad(b4, b3, t3, t4, rside2); // Right face
+            quad(b1, b0, t0, t1, rside1); // Front-left face
+            quad(b0, b4, t4, t0, rside2); // Front-right face
+
+            // Top Face (Vivid Accent)
+            const ImU32 rtop = theme::u32(tok::accent);
+            dl->AddQuadFilled(t1, t2, t3, t4, rtop);
+            dl->AddTriangleFilled(t0, t1, t4, rtop);
+            dl->AddQuad(t1, t2, t3, t4, theme::u32(tok::text), 0, 1.2f);
+            dl->AddTriangle(t0, t1, t4, theme::u32(tok::text), 1.2f);
+
+            // Distinct Heading Arrow on Top
+            const ImVec2 a_tip = rrot(fx * 0.85, 0, hr + 0.001);
+            const ImVec2 a_l = rrot(x_off + 0.005, hy * 0.40, hr + 0.001);
+            const ImVec2 a_r = rrot(x_off + 0.005, -hy * 0.40, hr + 0.001);
+            dl->AddTriangleFilled(a_tip, a_l, a_r, theme::u32(tok::text, 0.95f));
+
+            // Left & Right Wheels (Dark rubber with rim)
+            const double wy = hy * 0.95, wx0 = x_off - L * 0.15, wx1 = x_off + L * 0.15, wh = 0.024;
+            const ImU32 wcol = theme::u32(tok::panel);
+            quad(rrot(wx0, wy, 0), rrot(wx1, wy, 0), rrot(wx1, wy, wh), rrot(wx0, wy, wh), wcol);
+            quad(rrot(wx0, -wy, 0), rrot(wx1, -wy, 0), rrot(wx1, -wy, wh), rrot(wx0, -wy, wh), wcol);
+
+            // Distance Sensor Beams in 3D (if enabled)
+            if (st.robot_view.show_beams) {
+                const auto& wld = st.session->world();
+                const auto& ss = wld.sensors();
+                for (std::size_t ch = 0; ch < ss.size(); ++ch) {
+                    if (!wld.emitter(static_cast<int>(ch))) continue;
+                    const auto& sc = ss.config(ch);
+                    const auto mm = ss.distance_mm(ch);
+                    const double dist = (mm == core::kDistanceNone) ? sc.range_max : (mm * 1e-3);
+                    const double sa = (p.theta * 180.0 / 3.14159265358979323846 + sc.angle_deg) * (3.14159265358979323846 / 180.0);
+                    const ImVec2 src = rrot(sc.x, sc.y, 0.012);
+                    const ImVec2 dst = iso.at(p.x + sc.x * ct - sc.y * sth + std::cos(sa) * dist,
+                                              p.y + sc.x * sth + sc.y * ct + std::sin(sa) * dist, 0.012);
+                    dl->AddLine(src, dst, theme::u32(tok::accent, 0.45f), 1.2f);
+                    dl->AddCircleFilled(dst, 2.5f, theme::u32(mm == core::kDistanceNone ? tok::muted : tok::warn));
+                }
+            }
+        }
     }
 }
 
 /// Small floating chip row inside the canvas (top-right): Fit, and the 2D / 2.5D switch.
 void canvas_chips(AppState& st, ImVec2 origin, ImVec2 size, CanvasKind kind, int ws) {
     const ImGuiStyle& s = ImGui::GetStyle();
+    const bool can_iso = (kind == CanvasKind::Cockpit || kind == CanvasKind::Studio);
     float w = ui::button_width("Fit");
-    if (kind == CanvasKind::Studio)
+    if (can_iso)
         w += ui::button_width("2D") + ui::button_width("2.5D") + s.ItemSpacing.x * 2;
     ImGui::SetCursorScreenPos({origin.x + size.x - w - 12.0f, origin.y + 8.0f});
-    if (kind == CanvasKind::Studio) {
-        if (ui::pill_toggle("2D", !st.iso, "Top-down view")) st.iso = false;
+    if (can_iso) {
+        if (ui::pill_toggle("2D", !st.iso, "Top-down 2D view")) st.iso = false;
         ImGui::SameLine();
-        if (ui::pill_toggle("2.5D", st.iso, "Isometric view (walls extruded)")) st.iso = true;
+        if (ui::pill_toggle("2.5D", st.iso, "Isometric 3D view (walls extruded, I to toggle)")) st.iso = true;
         ImGui::SameLine();
     }
     if (ui::pill_toggle("Fit", false, "Fit the maze (F)")) {
         st.need_fit[ws] = true;
         st.user_moved[ws] = false;
+        if (ws >= 0 && ws < ui::kWorkspaceCount) {
+            st.iso_pan[ws] = {0.0f, 0.0f};
+            st.iso_zoom[ws] = 1.0f;
+        }
     }
 }
 
@@ -265,7 +419,8 @@ void panel_maze(AppState& st, const char* window, CanvasKind kind) {
     const bool clicked =
         ImGui::IsItemDeactivated() && ImGui::GetIO().MouseDragMaxDistanceSqr[0] < 16.0f;
     ImGuiIO& io = ImGui::GetIO();
-    const bool iso = kind == CanvasKind::Studio && st.iso;
+    const bool can_iso = (kind == CanvasKind::Cockpit || kind == CanvasKind::Studio);
+    const bool iso = can_iso && st.iso;
 
     // The chip row (Fit, 2D/2.5D, legends) owns the top strip: the maze is fitted below it.
     const float chips_h = st.maze ? ImGui::GetFrameHeight() + 14.0f : 0.0f;
@@ -276,7 +431,20 @@ void panel_maze(AppState& st, const char* window, CanvasKind kind) {
         cam.fit({b.x0 - pad, b.y0 - pad}, {b.x1 + pad * 0.3, b.y1 + pad * 0.3}, 0.02);
         st.need_fit[ws] = false;
     }
-    if (!iso) {
+    if (iso) {
+        if (active && (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f)) {
+            if (ws >= 0 && ws < ui::kWorkspaceCount) {
+                st.iso_pan[ws].x += io.MouseDelta.x;
+                st.iso_pan[ws].y += io.MouseDelta.y;
+            }
+        }
+        if (hovered && io.MouseWheel != 0.0f) {
+            if (ws >= 0 && ws < ui::kWorkspaceCount) {
+                st.iso_zoom[ws] = std::clamp(
+                    st.iso_zoom[ws] * static_cast<float>(std::pow(1.15, io.MouseWheel)), 0.2f, 10.0f);
+            }
+        }
+    } else {
         if (active && (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f)) {
             cam.pan_pixels({io.MouseDelta.x, io.MouseDelta.y});
             st.user_moved[ws] = true;
@@ -297,7 +465,7 @@ void panel_maze(AppState& st, const char* window, CanvasKind kind) {
         dl->AddText({origin.x + (avail.x - ts.x) * 0.5f, origin.y + (avail.y - ts.y) * 0.5f},
                     theme::u32(tok::muted), msg);
     } else if (iso) {
-        draw_iso(st, dl, origin, avail);
+        draw_iso(st, dl, origin, avail, ws);
     } else {
         MazeViewOptions vo = st.view;
         if (kind == CanvasKind::Studio && st.heat != HeatLayer::Off)
