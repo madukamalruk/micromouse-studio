@@ -197,10 +197,12 @@ void panel_battery(AppState& st) {
     }
     // Mission prediction (Python reference model, golden-tested).
     static an::BatteryRun pred;
-    static bool have = false;
-    if (!have) {
+    static double last_cap = -1.0, last_r = -1.0, last_soc0 = -1.0;
+    if (bc.capacity_mah != last_cap || bc.r_int_ohm != last_r || bc.soc0 != last_soc0) {
         pred = an::battery_run(an::mission_profile(), bc.capacity_mah, bc.r_int_ohm, bc.soc0);
-        have = true;
+        last_cap = bc.capacity_mah;
+        last_r = bc.r_int_ohm;
+        last_soc0 = bc.soc0;
     }
     ui::value_row(Help::MissionMin, "3-run mission min", "%.2f V (%+.2f V margin)", pred.min_v,
                   pred.margin_to_6v0);

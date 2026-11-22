@@ -90,8 +90,13 @@ $solvers = 'demo_floodfill', 'demo_dijkstra', 'demo_astar', 'demo_tremaux', 'dem
 foreach ($s in $solvers) { Copy-Required (Join-Path $build "firmware_bin\$s.dll") (Join-Path $stage 'firmware_bin') }
 
 Copy-Required (Join-Path $root 'config\robots\generic_classic.json') (Join-Path $stage 'config\robots')
-Get-ChildItem (Join-Path $root 'mazes\test') -Filter *.txt | ForEach-Object {
-    Copy-Required $_.FullName (Join-Path $stage 'mazes\test')
+foreach ($sub in 'classic', 'training', 'halfsize', 'test') {
+    $srcDir = Join-Path $root "mazes\$sub"
+    if (Test-Path $srcDir) {
+        Get-ChildItem $srcDir -Filter *.txt | ForEach-Object {
+            Copy-Required $_.FullName (Join-Path $stage "mazes\$sub")
+        }
+    }
 }
 Copy-Required (Join-Path $root 'tools\package\Launch_MMSim.bat') $stage
 Copy-Item (Join-Path $root 'tools\package\README_PORTABLE.md') (Join-Path $stage 'README.md') -Force

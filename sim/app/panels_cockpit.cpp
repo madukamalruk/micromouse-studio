@@ -136,12 +136,15 @@ void panel_faceplate(AppState& st) {
     ui::section("Control");
     const float bw =
         (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2) / 3.0f;
-    if (ui::action_button("GO", ui::Tone::Good, !st.session || st.running, bw))
+    const bool have = st.session && st.session->state() != host::FwState::LoadError;
+    if (ui::action_button("GO", ui::Tone::Good, !have || st.running, bw))
         st.actions.trigger("go");
     ImGui::SameLine();
     if (ui::action_button("STOP", ui::Tone::Bad, !st.running, bw)) st.actions.trigger("stop");
     ImGui::SameLine();
     if (ui::action_button("RESET", ui::Tone::Neutral, !st.maze, bw)) st.actions.trigger("reset");
+    if (beginner && have && !st.running && st.session->time_us() == 0)
+        ui::hint("Press GO (or Space) to start. Use 2D / 2.5D at top-right.");
     ImGui::End();
 }
 
@@ -203,9 +206,9 @@ void panel_sensors(AppState& st) {
         char id[24];
         std::snprintf(id, sizeof id, "##sens%zu", ch);
         ImGui::SetCursorScreenPos({x0 + name_w + 12.0f, row.y + fh * 0.1f});
-        ImGui::PushItemWidth(x1 - (x0 + name_w + 12.0f) - val_w - 12.0f);
-        ui::bar(id, f, txt, f > 0.75f ? tok::warn : tok::accent, fh * 0.8f, false,
-                x1 - (x0 + name_w + 12.0f) - val_w - 12.0f);
+        const float bar_w = std::max(28.0f, x1 - (x0 + name_w + 12.0f) - val_w - 12.0f);
+        ImGui::PushItemWidth(bar_w);
+        ui::bar(id, f, txt, f > 0.75f ? tok::warn : tok::accent, fh * 0.8f, false, bar_w);
         ImGui::PopItemWidth();
         // Row pitch = frame height + 4 px, so four sensors fit a 720 px tall window.
         ImGui::SetCursorScreenPos({x0, row.y});

@@ -81,6 +81,8 @@ Test-Check 'mmsim-cli --firmware wallfollower (perfect maze)' ($r.Code -eq 0 -an
 # 3. Contents: no mazefiles content, no state files, no private paths in text files.
 $files = Get-ChildItem $pkg -Recurse -File
 Test-Check 'no external/ or runs/ folder' (-not (Get-ChildItem $pkg -Directory | Where-Object { $_.Name -in 'external', 'runs', 'reports' }))
+Test-Check 'bundled mazes\classic present' ((Get-ChildItem (Join-Path $pkg 'mazes\classic') -Filter *.txt -ErrorAction SilentlyContinue).Count -ge 16)
+Test-Check 'bundled mazes\training present' ((Get-ChildItem (Join-Path $pkg 'mazes\training') -Filter *.txt -ErrorAction SilentlyContinue).Count -ge 6)
 Test-Check 'mmsim.exe is a GUI-subsystem exe (no console window)' ((Get-PeSubsystem $guiPath) -eq 2)
 Test-Check 'mmsim-cli.exe is a console exe' ((Get-PeSubsystem $cliPath) -eq 3)
 Test-Check 'mmsim.portable marker present' (Test-Path (Join-Path $pkg 'mmsim.portable'))

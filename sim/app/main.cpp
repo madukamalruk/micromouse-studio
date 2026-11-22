@@ -9,6 +9,7 @@
 #include <implot.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -388,20 +389,22 @@ void maze_menu(AppState& st) {
     if (fitted_combo("##maze", "Maze  " + name, 220.0f)) {
         ImGui::SetNextItemWidth(260.0f);
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-        ImGui::InputTextWithHint("##filter", "filter, e.g. uk1987", st.filter, sizeof st.filter);
-        const std::string f = st.filter;
+        ImGui::InputTextWithHint("##filter", "filter, e.g. classic, 9x9, speed", st.filter,
+                                 sizeof st.filter);
+        auto lower = [](std::string s) {
+            for (char& ch : s) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            return s;
+        };
+        const std::string f = lower(st.filter);
         for (const auto& g : st.library) {
-            if (g.files.empty()) {
-                if (g.label.rfind("Classic", 0) == 0)
-                    ImGui::TextDisabled("mazefiles not fetched: run tools/fetch_mazes.ps1");
-                continue;
-            }
-            ImGui::SeparatorText(g.label.c_str());
+            if (g.files.empty()) continue;
+            const std::string hdr = g.label + " (" + std::to_string(g.files.size()) + ")";
+            ImGui::SeparatorText(hdr.c_str());
             int shown = 0;
             for (const auto& p : g.files) {
                 const std::string n = p.filename().string();
-                if (!f.empty() && n.find(f) == std::string::npos) continue;
-                if (f.empty() && g.label != "Test mazes" && ++shown > 40) {
+                if (!f.empty() && lower(n).find(f) == std::string::npos) continue;
+                if (f.empty() && ++shown > 40) {
                     ImGui::TextDisabled("... type to filter %zu mazes", g.files.size());
                     break;
                 }
@@ -411,6 +414,9 @@ void maze_menu(AppState& st) {
                 }
             }
         }
+        ImGui::Separator();
+        if (ImGui::Selectable("Rescan mazes", false, ImGuiSelectableFlags_NoAutoClosePopups))
+            st.library = scan_library(st.root, st.user_dir);
         ImGui::EndCombo();
     }
 }
@@ -1258,6 +1264,7 @@ int main(int argc, char** argv) {
     io.IniFilename = persist ? ini_path.c_str() : nullptr;
     const fs::path settings_file = user_dir / "mmsim.json";
     AppSettings saved;
+    const bool cli_started = args.firmware.has_value() || args.mms_solver.has_value();
     if (persist) {
         std::string serr;
         if (!load_settings(settings_file, saved, serr))
@@ -1314,7 +1321,7 @@ int main(int argc, char** argv) {
         st.workspace = ui::Workspace::Cockpit;  // pixel probes need the plain 2-D maze
     st.seed = args.seed;
     st.pacer.set_speed(args.speed);
-    st.library = scan_library(st.root);
+    st.library = scan_library(st.root, st.user_dir);
     {
         const fs::path cfg =
             args.config ? *args.config : st.root / "config/robots/generic_classic.json";
@@ -1339,6 +1346,41 @@ int main(int argc, char** argv) {
         fs::path f = *args.firmware;
         if (f.extension() != ".dll") f = st.firmware_dir / (*args.firmware + ".dll");
         st.firmware = f;
+    }
+    if (!scripted) {
+        if (!args.firmware && !args.mms_solver && st.firmware.empty()) {
+            fs::path fallback;
+            for (const auto& f : st.firmwares) {
+                const std::string stem = f.stem().string();
+                if (stem == "demo_floodfill") {
+                    st.firmware = f;
+                    break;
+                }
+                if (fallback.empty() && ui::firmware_info(stem).group != 2) fallback = f;
+            }
+            if (st.firmware.empty() && !fallback.empty()) st.firmware = fallback;
+        }
+        if (!args.maze) {
+            std::error_code ec;
+            const fs::path preferred[] = {
+                st.root / "mazes/classic/classic_tournament_01.txt",
+                st.root / "mazes/test/gen16_loops_a.txt",
+            };
+            for (const auto& cand : preferred) {
+                if (fs::is_regular_file(cand, ec)) {
+                    args.maze = cand;
+                    break;
+                }
+            }
+            if (!args.maze) {
+                for (const auto& g : st.library) {
+                    if (!g.files.empty()) {
+                        args.maze = g.files.front();
+                        break;
+                    }
+                }
+            }
+        }
     }
     if (args.maze) {
         load_maze(st, *args.maze);  // also creates the session and loads the firmware
@@ -1395,7 +1437,7 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "error: %s\n", st.sim_error.c_str());
             if (args.exit_after) return 1;
         }
-    } else if ((args.firmware || args.mms_solver) && st.session && !scripted) {
+    } else if (cli_started && st.session && !scripted) {
         st.running = true;
     }
     // Compare: run B defaults to the newest archived run that is not this one.

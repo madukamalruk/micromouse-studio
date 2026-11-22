@@ -24,10 +24,16 @@ fs::path find_root_from(const std::vector<fs::path>& starts) {
     return find_data_root(starts);
 }
 
-std::vector<MazeGroup> scan_library(const fs::path& root) {
+std::vector<MazeGroup> scan_library(const fs::path& root, const fs::path& user_dir) {
     std::vector<MazeGroup> groups;
+    const fs::path custom_dir =
+        (user_dir.empty() || user_dir == root) ? (root / "mazes/custom") : (user_dir / "mazes");
     const std::pair<const char*, fs::path> dirs[] = {
+        {"Classic 16x16", root / "mazes/classic"},
+        {"Training (16x16 boxed)", root / "mazes/training"},
+        {"Half-size 32x32 (Studio / mms)", root / "mazes/halfsize"},
         {"Test mazes", root / "mazes/test"},
+        {"Custom mazes", custom_dir},
         {"Classic 16x16 (mazefiles)", root / "external/mazefiles/classic"},
         {"Half-size (mazefiles)", root / "external/mazefiles/halfsize"},
         {"Training (mazefiles)", root / "external/mazefiles/training"},

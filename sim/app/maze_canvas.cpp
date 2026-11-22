@@ -121,7 +121,7 @@ struct Iso {
     }
 };
 
-void draw_iso(AppState& st, ImDrawList* dl, ImVec2 p0, ImVec2 size, int ws) {
+void draw_iso(AppState& st, ImDrawList* dl, ImVec2 p0, ImVec2 size, int ws, CanvasKind kind) {
     if (!st.maze) return;
     const auto& m = *st.maze;
     const double c = st.dims.cell, t = st.dims.wall * 0.5, h = 0.05;  // 50 mm walls
@@ -143,12 +143,13 @@ void draw_iso(AppState& st, ImDrawList* dl, ImVec2 p0, ImVec2 size, int ws) {
         dl->AddQuadFilled(a, b, cc, d, col);
     };
 
-    // 1. Floor cells (with heat), far (high x+y) to near (low x+y).
+    // 1. Floor cells (with heat in Studio), far (high x+y) to near (low x+y).
+    const bool is_studio = (kind == CanvasKind::Studio);
     for (int s = m.width() + m.height() - 2; s >= 0; --s) {
         for (int x = 0; x < m.width(); ++x) {
             const int y = s - x;
             if (y < 0 || y >= m.height()) continue;
-            const float f = heat_value(st, x, y);
+            const float f = is_studio ? heat_value(st, x, y) : -1.0f;
             Rgba col = colors::kFloor;
             if (m.is_goal({x, y})) col = colors::kGoal;
             if (x == m.start().x && y == m.start().y) col = colors::kStart;
@@ -159,15 +160,17 @@ void draw_iso(AppState& st, ImDrawList* dl, ImVec2 p0, ImVec2 size, int ws) {
         }
     }
 
-    // 2. Route on the floor.
-    const auto& plan = studio_plan(st);
-    if (st.show_route && plan.path && plan.path->cells.size() >= 2) {
-        const auto& cells = plan.path->cells;
-        for (std::size_t i = 0; i + 1 < cells.size(); ++i) {
-            const bool diag = i < plan.diagonal_move.size() && plan.diagonal_move[i];
-            dl->AddLine(iso.at((cells[i].x + 0.5) * c, (cells[i].y + 0.5) * c, 0.001),
-                        iso.at((cells[i + 1].x + 0.5) * c, (cells[i + 1].y + 0.5) * c, 0.001),
-                        theme::u32(diag ? tok::warn : tok::accent, 0.95f), 2.5f);
+    // 2. Route on the floor (Studio only).
+    if (is_studio && st.show_route) {
+        const auto& plan = studio_plan(st);
+        if (plan.path && plan.path->cells.size() >= 2) {
+            const auto& cells = plan.path->cells;
+            for (std::size_t i = 0; i + 1 < cells.size(); ++i) {
+                const bool diag = i < plan.diagonal_move.size() && plan.diagonal_move[i];
+                dl->AddLine(iso.at((cells[i].x + 0.5) * c, (cells[i].y + 0.5) * c, 0.001),
+                            iso.at((cells[i + 1].x + 0.5) * c, (cells[i + 1].y + 0.5) * c, 0.001),
+                            theme::u32(diag ? tok::warn : tok::accent, 0.95f), 2.5f);
+            }
         }
     }
 
@@ -227,9 +230,22 @@ void draw_iso(AppState& st, ImDrawList* dl, ImVec2 p0, ImVec2 size, int ws) {
         }
     }
 
-    // Corner posts (pillars) at grid intersections where walls meet
+    // Corner posts (pillars) at grid intersections where at least one wall meets
     for (int py = 0; py <= m.height(); ++py) {
         for (int px = 0; px <= m.width(); ++px) {
+            const bool has_e =
+                px < m.width() && ((py < m.height() && m.has_wall(px, py, core::Dir::S)) ||
+                                   (py > 0 && m.has_wall(px, py - 1, core::Dir::N)));
+            const bool has_w =
+                px > 0 && ((py < m.height() && m.has_wall(px - 1, py, core::Dir::S)) ||
+                           (py > 0 && m.has_wall(px - 1, py - 1, core::Dir::N)));
+            const bool has_n =
+                py < m.height() && ((px < m.width() && m.has_wall(px, py, core::Dir::W)) ||
+                                    (px > 0 && m.has_wall(px - 1, py, core::Dir::E)));
+            const bool has_s =
+                py > 0 && ((px < m.width() && m.has_wall(px, py - 1, core::Dir::W)) ||
+                           (px > 0 && m.has_wall(px - 1, py - 1, core::Dir::E)));
+            if (!has_e && !has_w && !has_n && !has_s) continue;
             IsoObj o{};
             o.type = ObjType::Post;
             o.px = px * c; o.py = py * c;
@@ -357,18 +373,28 @@ void canvas_chips(AppState& st, ImVec2 origin, ImVec2 size, CanvasKind kind, int
     float w = ui::button_width("Fit");
     if (can_iso)
         w += ui::button_width("2D") + ui::button_width("2.5D") + s.ItemSpacing.x * 2;
-    ImGui::SetCursorScreenPos({origin.x + size.x - w - 12.0f, origin.y + 8.0f});
+    const ImVec2 pill_pos{origin.x + size.x - w - 12.0f, origin.y + 8.0f};
+    const float fh = ImGui::GetFrameHeight();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled({pill_pos.x - 5.0f, pill_pos.y - 3.0f},
+                      {pill_pos.x + w + 5.0f, pill_pos.y + fh + 3.0f},
+                      theme::u32(tok::raised, 0.88f), 999.0f);
+    dl->AddRect({pill_pos.x - 5.0f, pill_pos.y - 3.0f},
+                {pill_pos.x + w + 5.0f, pill_pos.y + fh + 3.0f},
+                theme::u32(tok::hairline, 0.85f), 999.0f, 0, 1.0f);
+    ImGui::SetCursorScreenPos(pill_pos);
     if (can_iso) {
-        if (ui::pill_toggle("2D", !st.iso, "Top-down 2D view")) st.iso = false;
+        if (ui::pill_toggle("2D", !st.iso, "Top-down 2D view (I)")) st.iso = false;
         ImGui::SameLine();
-        if (ui::pill_toggle("2.5D", st.iso, "Isometric 3D view (walls extruded, I to toggle)")) st.iso = true;
+        if (ui::pill_toggle("2.5D", st.iso, "Isometric 3D view (walls extruded, I to toggle)"))
+            st.iso = true;
         ImGui::SameLine();
     }
     if (ui::pill_toggle("Fit", false, "Fit the maze (F)")) {
         st.need_fit[ws] = true;
         st.user_moved[ws] = false;
         if (ws >= 0 && ws < ui::kWorkspaceCount) {
-            st.iso_pan[ws] = {0.0f, 0.0f};
+            st.iso_pan[ws] = {0.0, 0.0};
             st.iso_zoom[ws] = 1.0f;
         }
     }
@@ -411,6 +437,8 @@ void panel_maze(AppState& st, const char* window, CanvasKind kind) {
     ImVec2 avail = ImGui::GetContentRegionAvail();
     avail.x = std::max(avail.x, 50.0f);
     avail.y = std::max(avail.y, 50.0f);
+    // Allow top-right chips ([2D] [2.5D] [Fit]) and overlay widgets to receive hover and clicks.
+    ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("canvas", avail,
                            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle |
                                ImGuiButtonFlags_MouseButtonRight);
@@ -465,7 +493,21 @@ void panel_maze(AppState& st, const char* window, CanvasKind kind) {
         dl->AddText({origin.x + (avail.x - ts.x) * 0.5f, origin.y + (avail.y - ts.y) * 0.5f},
                     theme::u32(tok::muted), msg);
     } else if (iso) {
-        draw_iso(st, dl, origin, avail, ws);
+        draw_iso(st, dl, {origin.x, origin.y + chips_h},
+                 {avail.x, std::max(20.0f, avail.y - chips_h)}, ws, kind);
+        const char* nav_hint =
+            "Drag to pan \xC2\xB7 Scroll to zoom \xC2\xB7 F to fit \xC2\xB7 I to toggle";
+        const ImVec2 ts = ImGui::CalcTextSize(nav_hint);
+        if (avail.x > ts.x + 28.0f && avail.y > ts.y + chips_h + 28.0f) {
+            const ImVec2 hp{origin.x + 12.0f, origin.y + avail.y - ts.y - 12.0f};
+            dl->AddRectFilled({hp.x - 8.0f, hp.y - 4.0f},
+                              {hp.x + ts.x + 8.0f, hp.y + ts.y + 4.0f},
+                              theme::u32(tok::raised, 0.85f), 6.0f);
+            dl->AddRect({hp.x - 8.0f, hp.y - 4.0f},
+                        {hp.x + ts.x + 8.0f, hp.y + ts.y + 4.0f},
+                        theme::u32(tok::hairline, 0.75f), 6.0f, 0, 1.0f);
+            dl->AddText(hp, theme::u32(tok::muted), nav_hint);
+        }
     } else {
         MazeViewOptions vo = st.view;
         if (kind == CanvasKind::Studio && st.heat != HeatLayer::Off)

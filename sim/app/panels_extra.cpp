@@ -103,7 +103,9 @@ void panel_attitude(AppState& st) {
         ImGui::SameLine();
         ui::mono_colored(tok::warn, "%05.1f%s %s", target_b, kDeg, rose8(target_b));
     } else {
-        ImGui::TextDisabled("Target: not reported");
+        ImGui::TextDisabled("Target: --");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("Firmware has not reported a target heading (hdg_target).");
     }
     ImGui::TextDisabled("Gyro Z");
     ui::help(Help::GyroRate);

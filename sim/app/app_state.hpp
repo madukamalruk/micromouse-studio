@@ -180,7 +180,8 @@ struct AppState {
 
 // --- operations (app_ops.cpp) -----------------------------------------------------------------
 std::filesystem::path find_root_from(const std::vector<std::filesystem::path>& starts);
-std::vector<MazeGroup> scan_library(const std::filesystem::path& root);
+std::vector<MazeGroup> scan_library(const std::filesystem::path& root,
+                                    const std::filesystem::path& user_dir = {});
 std::filesystem::path find_firmware_dir(const std::filesystem::path& root,
                                         const std::filesystem::path& exe_dir);
 std::vector<std::filesystem::path> scan_firmware(const std::filesystem::path& dir);
