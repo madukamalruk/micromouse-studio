@@ -1,12 +1,11 @@
-# Decision log
 
-Format: date · decision · why · alternatives considered.
-
-## D1 — 2026-11-20 · Stack: C++20 sim + C11 firmware, SDL2 + Dear ImGui + ImPlot, MSYS2 UCRT64 at `D:\msys64`
-- **Why:** native C/C++ links firmware directly; ImPlot gives fast live plots; GCC matches the arm-none-eabi-gcc used for STM32; MSYS2 pacman provides GCC/CMake/Ninja/SDL2 in one place; D: chosen to save C: space.
-- **Installed (2026-11-20):** GCC 16.2.0, CMake 4.5.0, Ninja 1.13.2, GDB 18.1, SDL2 2.32.10, clang-format 23.1.5, Python 3.14.10 (all MSYS2 UCRT64).
-- **PATH policy:** persistent system/user PATH is not modified; `cmake/toolchain-msys2-ucrt64.cmake` pins compilers/Ninja under `MSYS2_ROOT` (default `D:/msys64`), so legacy `C:\MinGW` GCC 6.3 is never used.
-- **Alternatives:** Qt 6 (heavy, LGPL, slower iteration); raylib (weak UI/plots); Web UI + C++ backend (two codebases); MSVC Build Tools (different compiler family from STM32 GCC).
+## D18 - 2026-11-22 · v0.2.2: 2.5D isometric engine overhaul
+- **One iso renderer for every canvas:** `[2D]`/`[2.5D]` chips now work in Cockpit and Studio; key `I` toggles, `--iso` starts scripted/headless runs in 2.5D, and the choice persists in `mmsim.json` (`iso`).
+- **Painter's algorithm:** floor, walls, corner posts and the robot are drawn in one list sorted by descending x + y, so occlusion is correct without a depth buffer.
+- **Pan/zoom:** right-drag pans and the wheel zooms per workspace (`iso_pan`, `iso_zoom`); `F` resets to {0,0} and 1.0.
+- **Geometry:** corner posts (t x t x h) seal wall junctions; the robot is an extruded chassis wedge (L x W x 22 mm) with skirts, heading chevron, wheels and 3D sensor rays.
+- **Test:** headless visual test `app.render_iso_tiny4x4` and a settings round-trip assertion for `iso`.
+lots); Web UI + C++ backend (two codebases); MSVC Build Tools (different compiler family from STM32 GCC).
 
 ## D2 — 2026-11-20 · Firmware runs as a DLL in lockstep with sim time
 - **Why:** unload/reload gives clean firmware globals on reset and hot-reload after rebuild; lockstep (ISR on sim thread, main loop resumes only at blocking HAL calls) makes runs bit-deterministic.

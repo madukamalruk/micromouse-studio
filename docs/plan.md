@@ -279,3 +279,4 @@ Slice 9 Wave 9B done (2026-11-20): four workspaces, faceplate, sensor mounts, St
 Next: demo firmware robustness on the 33 failing classic mazes is a separate follow-up; smooth (arc) turns in demo_floodfill after Slices 7-9 / Phase 2.
 Slice 11 (v0.2.0, 2026-11-22): UI/UX polish with `(?)` help on every plot and gauge, attitude compass, Move & Firmware Details log, robot config editor, race timer and attempt tracker, `mmsim.ico`, per-user data folder, Inno Setup installer (D16). Local only until the owner reviews the verification report; no push, no tag.
 Slice 12 (v0.2.1, 2026-11-22): audit fixes D17 - 6 V cap and 20 ms reversal dead-time in firmware and sim, process/pipe timeouts, guard fault reporting.
+Slice 13 (v0.2.2, 2026-11-22): 2.5D isometric overhaul D18 - Cockpit/Studio toggle, pan/zoom, 3D chassis and corner posts, painter depth sort, persisted preference, iso render test.

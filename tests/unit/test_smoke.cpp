@@ -6,7 +6,7 @@
 #include "sim/core/version.hpp"
 
 TEST_CASE("simcore reports its version") {
-    CHECK(mmsim::core::version() == std::string_view{"0.2.1"});
+    CHECK(mmsim::core::version() == std::string_view{"0.2.2"});
 }
 
 TEST_CASE("HAL header is reachable and versioned") {

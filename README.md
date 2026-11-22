@@ -62,7 +62,7 @@ take on the way back, and neither wins everywhere (see D15 in [docs/decisions.md
 
 ### Windows installer (recommended, Windows 10/11, no admin rights)
 
-1. Download `MMSim-v0.2.1-Setup.exe` from the
+1. Download `MMSim-v0.2.2-Setup.exe` from the
    [Releases page](https://github.com/madukamalruk/micromouse-studio/releases) and run it.
 2. Accept the MIT licence, keep the default folder (`%LOCALAPPDATA%\Programs\MMSim`, no UAC
    prompt) and tick the Desktop shortcut if you want one.
@@ -73,7 +73,7 @@ folder stays clean. Uninstall from *Settings > Apps*; the uninstaller asks wheth
 
 ### Portable zip (Windows 10/11, no installer, no toolchain)
 
-1. Download `mmsim-v0.2.1-win64.zip` from the same page and unzip it anywhere.
+1. Download `mmsim-v0.2.2-win64.zip` from the same page and unzip it anywhere.
 2. Double-click `Launch_MMSim.bat`, then press **GO** (or Space).
 3. Pick a solver in the *Firmware* menu and a maze in the *Maze* menu.
 
